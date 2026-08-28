@@ -24,7 +24,8 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "catalog:"
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-tools": "catalog:"
   },
   "scripts": {
     "build": "tsc -b",
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-tools": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
