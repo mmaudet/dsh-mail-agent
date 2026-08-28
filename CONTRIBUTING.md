@@ -62,6 +62,11 @@ repository root, drop `tooling/lint`, and let the catalog supply the single comp
 Vitest, one config per package, specs colocated as `src/**/*.spec.ts`. Import `describe`,
 `it` and `expect` explicitly rather than relying on globals.
 
+Specs are part of each package's TypeScript project, so `pnpm typecheck` and the type-aware
+lint rules cover them. The trade-off is that `tsc -b` also emits them to `dist/`. That is
+harmless while the packages are `private`; before the first publish, exclude them from the
+build project so the tarball carries sources only.
+
 ## Secrets
 
 Never commit credentials. The LLM bearer token lives in `dsh-secrets` on the host, and OIDC
