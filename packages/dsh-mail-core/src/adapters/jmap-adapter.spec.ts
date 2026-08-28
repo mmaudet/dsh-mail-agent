@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { encodeCursor } from '../types.js';
-import { JmapAdapter, type JmapRequest, type JmapTransport } from './jmap-adapter.js';
+import {
+  JmapAdapter,
+  type JmapPushChannel,
+  type JmapRequest,
+  type JmapTransport,
+} from './jmap-adapter.js';
 
 /** Replays canned method responses and records what was asked. */
 function transportOf(...responses: readonly unknown[]): JmapTransport & {
@@ -323,6 +328,22 @@ describe('drafts and submission', () => {
   });
 });
 
+/** A push channel whose StateChange can be fired from the test body. */
+function fakePush(): { channel: JmapPushChannel; fire: () => void } {
+  const handlers: (() => void)[] = [];
+  return {
+    channel: {
+      subscribe: (onStateChange) => {
+        handlers.push(onStateChange);
+        return { [Symbol.asyncDispose]: () => Promise.resolve() };
+      },
+    },
+    fire: () => {
+      for (const handler of handlers) handler();
+    },
+  };
+}
+
 describe('watchInbox', () => {
   it('refuses to pretend it can push without a channel', () => {
     const adapter = adapterWith(transportOf());
@@ -335,44 +356,38 @@ describe('watchInbox', () => {
       { queryState: 's1' },
       { newQueryState: 's2', added: [{ id: 'e5' }], removed: [] },
     );
-    let fire: (() => void) | null = null;
+    const push = fakePush();
     const adapter = new JmapAdapter({
       transport,
       accountId: 'acc1',
       identityId: 'id1',
-      push: {
-        subscribe: (onStateChange) => {
-          fire = onStateChange;
-          return { [Symbol.asyncDispose]: () => Promise.resolve() };
-        },
-      },
+      push: push.channel,
     });
 
     const seen: string[] = [];
     const subscription = adapter.watchInbox((change) => seen.push(change.id));
-    fire?.();
-    await vi.waitFor(() => expect(seen).toStrictEqual(['e5']));
+    push.fire();
+    await vi.waitFor(() => {
+      expect(seen).toStrictEqual(['e5']);
+    });
 
     await subscription[Symbol.asyncDispose]();
   });
 
   it('keeps the subscription alive when a poll fails', async () => {
     const transport: JmapTransport = { request: () => Promise.reject(new Error('offline')) };
-    let fire: (() => void) | null = null;
+    const push = fakePush();
     const adapter = new JmapAdapter({
       transport,
       accountId: 'acc1',
       identityId: 'id1',
-      push: {
-        subscribe: (onStateChange) => {
-          fire = onStateChange;
-          return { [Symbol.asyncDispose]: () => Promise.resolve() };
-        },
-      },
+      push: push.channel,
     });
 
     const subscription = adapter.watchInbox(() => undefined);
-    expect(() => fire?.()).not.toThrow();
+    expect(() => {
+      push.fire();
+    }).not.toThrow();
     await subscription[Symbol.asyncDispose]();
   });
 });
