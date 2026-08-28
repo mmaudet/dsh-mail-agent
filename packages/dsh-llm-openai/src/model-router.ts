@@ -8,6 +8,7 @@
  * editing configuration, with no consumer change.
  */
 
+import type { ReasoningSettings } from './serialize.js';
 import type { EndpointRoute } from './openai-endpoint.js';
 
 /** Ordered cheapest to most expensive; the cascade escalates along this order. */
@@ -36,6 +37,7 @@ export interface TierConfig {
   readonly maxTokens?: number | undefined;
   readonly timeoutMs?: number | undefined;
   readonly contextWindow?: number | undefined;
+  readonly reasoning?: ReasoningSettings | undefined;
 }
 
 /**
@@ -61,6 +63,7 @@ export function buildRoutes(
       maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS[tier],
       timeoutMs: config.timeoutMs,
       contextWindow: config.contextWindow,
+      reasoning: config.reasoning,
     });
   }
   return routes;

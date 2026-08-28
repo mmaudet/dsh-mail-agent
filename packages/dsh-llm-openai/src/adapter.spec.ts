@@ -452,3 +452,76 @@ describe('StreamTranslator', () => {
     expect(starts.map((s) => s.index)).toStrictEqual([0, 1]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Reasoning levels
+// ---------------------------------------------------------------------------
+
+describe('reasoning levels', () => {
+  const settings = {
+    efforts: [
+      { id: 'off' as never, name: 'Off' },
+      { id: 'deep' as never, name: 'Deep' },
+    ],
+    defaultEffort: 'off' as never,
+    // Wire spelling is configuration: this endpoint happens to use vLLM's
+    // template kwargs, another would use reasoning_effort.
+    wire: {
+      off: { chat_template_kwargs: { enable_thinking: false } },
+      deep: { chat_template_kwargs: { enable_thinking: true } },
+    },
+  };
+
+  it('adds nothing for a model that declares no levels', () => {
+    const body = serializeRequest(options(), { model: MODEL });
+    expect(body).not.toHaveProperty('chat_template_kwargs');
+    expect(body).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('refuses a reasoning request the model cannot honour', () => {
+    expect(() =>
+      serializeRequest(options({ reasoningEffort: 'deep' as never }), { model: MODEL }),
+    ).toThrow(/no reasoning levels/);
+  });
+
+  it('materialises the configured default when the caller names none', () => {
+    const body = serializeRequest(options(), { model: MODEL, reasoning: settings });
+    expect(body['chat_template_kwargs']).toStrictEqual({ enable_thinking: false });
+  });
+
+  it('maps the requested level to that endpoint wire spelling', () => {
+    const body = serializeRequest(options({ reasoningEffort: 'deep' as never }), {
+      model: MODEL,
+      reasoning: settings,
+    });
+    expect(body['chat_template_kwargs']).toStrictEqual({ enable_thinking: true });
+  });
+
+  it('rejects an unknown level rather than clamping onto a neighbour', () => {
+    expect(() =>
+      serializeRequest(options({ reasoningEffort: 'medium' as never }), {
+        model: MODEL,
+        reasoning: settings,
+      }),
+    ).toThrow(/Unknown reasoning level/);
+  });
+
+  it('advertises the levels through resolveModel, as the seam expects', async () => {
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-draft', route({ reasoning: settings })]]),
+    });
+    const info = await adapter.resolveModel('mail-llm-draft', MODEL);
+
+    expect(info.reasoning?.efforts.map((e) => e.id)).toStrictEqual(['off', 'deep']);
+    expect(info.reasoning?.defaultEffort).toBe('off');
+  });
+
+  it('advertises none for the gateway models of today', async () => {
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-economy', route()]]),
+    });
+    const info = await adapter.resolveModel('mail-llm-economy', MODEL);
+
+    expect(info.reasoning).toBeUndefined();
+  });
+});

@@ -8,21 +8,55 @@
  */
 
 import { LlmError } from '@deepseek-ai/dsh-llm';
-import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm';
+import type {
+  ContentBlock,
+  GenerateOptions,
+  LlmReasoningEffortInfo,
+  Message,
+} from '@deepseek-ai/dsh-llm';
 
 import type { WireMessage, WireRequest, WireTool } from './wire.js';
+
+/** The branded effort id, taken from the seam rather than imported directly. */
+type ReasoningEffortId = LlmReasoningEffortInfo['id'];
+
+/**
+ * Selectable reasoning levels for one model, and how each reaches the wire.
+ *
+ * The wire spelling is configuration, not a constant: OpenAI expresses effort
+ * as `reasoning_effort`, vLLM as `chat_template_kwargs`, and others again
+ * differently. Hard-coding one vendor's convention would make this adapter
+ * wrong for the endpoints it exists to be generic over, so the mapping is
+ * declared alongside the model that needs it.
+ */
+export interface ReasoningSettings {
+  /** Adapter-owned selectable levels, in display order. */
+  readonly efforts: readonly LlmReasoningEffortInfo[];
+  /** Materialized when the caller names no effort; absent keeps the provider default. */
+  readonly defaultEffort?: ReasoningEffortId | undefined;
+  /** Effort id to the request fields it adds. An id need not equal its wire spelling. */
+  readonly wire: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+}
 
 export interface SerializeOptions {
   readonly model: string;
   /** Endpoints that reject `stop`; the caller declares what it supports. */
   readonly supportsStop?: boolean;
   readonly supportsTools?: boolean;
+  readonly reasoning?: ReasoningSettings | undefined;
 }
+
+/**
+ * The body sent on the wire: the known fields, plus whatever a configured
+ * reasoning level adds. The intersection is deliberate — the extra keys are
+ * real at runtime and the return type should not pretend otherwise.
+ */
+export type SerializedRequest = WireRequest & Readonly<Record<string, unknown>>;
 
 export function serializeRequest(
   options: GenerateOptions,
   serialize: SerializeOptions,
-): WireRequest {
+): SerializedRequest {
   if (options.stop !== undefined && options.stop.length > 0 && serialize.supportsStop === false) {
     throw new LlmError(
       'This endpoint does not accept stop sequences',
@@ -32,6 +66,8 @@ export function serializeRequest(
   if (options.tools !== undefined && options.tools.length > 0 && serialize.supportsTools === false) {
     throw new LlmError('This endpoint does not accept tools', 'UNSUPPORTED_OPTION');
   }
+
+  const reasoningFields = resolveReasoning(options.reasoningEffort, serialize.reasoning);
 
   const messages: WireMessage[] = [];
   if (options.system !== undefined && options.system.length > 0) {
@@ -60,7 +96,41 @@ export function serializeRequest(
     ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
     ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
     ...(options.stop === undefined || options.stop.length === 0 ? {} : { stop: options.stop }),
+    ...reasoningFields,
   };
+}
+
+/**
+ * Turn a requested effort into the wire fields that carry it.
+ *
+ * Three refusals rather than three silent fallbacks: a caller asking for
+ * reasoning from a model that has none, or for a level this model does not
+ * offer, gets `UNSUPPORTED_OPTION`. The contract forbids clamping an
+ * unsupported value onto a neighbouring one, because a caller that asked for
+ * deep reasoning and silently received none cannot tell.
+ */
+function resolveReasoning(
+  requested: ReasoningEffortId | undefined,
+  settings: ReasoningSettings | undefined,
+): Readonly<Record<string, unknown>> {
+  if (settings === undefined) {
+    if (requested === undefined) return {};
+    throw new LlmError(
+      'This model offers no reasoning levels',
+      'UNSUPPORTED_OPTION',
+    );
+  }
+
+  const effort = requested ?? settings.defaultEffort;
+  if (effort === undefined) return {};
+
+  if (!settings.efforts.some((known) => known.id === effort)) {
+    throw new LlmError(
+      `Unknown reasoning level: ${String(effort)}`,
+      'UNSUPPORTED_OPTION',
+    );
+  }
+  return settings.wire[effort] ?? {};
 }
 
 /**

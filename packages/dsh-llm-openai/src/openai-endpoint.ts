@@ -15,7 +15,7 @@ import type {
   StreamChunk,
 } from '@deepseek-ai/dsh-llm';
 
-import { serializeRequest } from './serialize.js';
+import { serializeRequest, type ReasoningSettings } from './serialize.js';
 import { DONE, parseSse } from './sse.js';
 import { StreamTranslator } from './translate.js';
 
@@ -29,6 +29,14 @@ export interface EndpointRoute {
   readonly contextWindow?: number | undefined;
   readonly supportsStop?: boolean | undefined;
   readonly supportsTools?: boolean | undefined;
+  /**
+   * Selectable reasoning levels, when the route's model has any.
+   *
+   * Absent for an ordinary instruct model, which is every model the sovereign
+   * gateway currently serves. Declaring it is what turns a reasoning model
+   * into a configuration change rather than an adapter change.
+   */
+  readonly reasoning?: ReasoningSettings | undefined;
 }
 
 export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
@@ -78,6 +86,16 @@ export class OpenAiEndpointAdapter extends LlmAdapter {
         ? {}
         : { context: { contextWindow: route.contextWindow } }),
       ...(route?.maxTokens === undefined ? {} : { defaultMaxTokens: route.maxTokens }),
+      ...(route?.reasoning === undefined
+        ? {}
+        : {
+            reasoning: {
+              efforts: route.reasoning.efforts,
+              ...(route.reasoning.defaultEffort === undefined
+                ? {}
+                : { defaultEffort: route.reasoning.defaultEffort }),
+            },
+          }),
     });
   }
 
@@ -93,6 +111,7 @@ export class OpenAiEndpointAdapter extends LlmAdapter {
         model: route.model,
         ...(route.supportsStop === undefined ? {} : { supportsStop: route.supportsStop }),
         ...(route.supportsTools === undefined ? {} : { supportsTools: route.supportsTools }),
+        ...(route.reasoning === undefined ? {} : { reasoning: route.reasoning }),
       },
     );
 

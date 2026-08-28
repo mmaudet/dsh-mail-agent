@@ -12,6 +12,7 @@
 
 import type { Context } from '@deepseek-ai/cordis';
 
+import type { ReasoningSettings } from './serialize.js';
 import {
   DEFAULT_MAX_TOKENS,
   TIERS,
@@ -38,6 +39,13 @@ export type BundleId = typeof BUNDLE_ID;
 export interface TierSettings {
   readonly baseUrl?: string;
   readonly model?: string;
+  /**
+   * Reasoning levels this tier's model offers, when it offers any.
+   *
+   * No model on the sovereign gateway does today, so this stays absent; it is
+   * the seam through which one arrives without touching the adapter.
+   */
+  readonly reasoning?: ReasoningSettings;
   /** Name of the environment variable holding the bearer token. */
   readonly apiKeyEnv?: string;
   readonly maxTokens?: number;
@@ -87,6 +95,7 @@ export function resolveRoutes(
       maxTokens: settings.maxTokens ?? DEFAULT_MAX_TOKENS[tier],
       timeoutMs: settings.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       contextWindow: settings.contextWindow,
+      reasoning: settings.reasoning,
     };
   }
 
@@ -123,6 +132,11 @@ export {
   type TierConfig,
 };
 export { StreamTranslator } from './translate.js';
-export { serializeRequest, type SerializeOptions } from './serialize.js';
+export {
+  serializeRequest,
+  type ReasoningSettings,
+  type SerializeOptions,
+  type SerializedRequest,
+} from './serialize.js';
 export { DONE, parseSse } from './sse.js';
 export type * from './wire.js';
