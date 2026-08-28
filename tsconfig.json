@@ -2,6 +2,7 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "include": [],
   "references": [
-    { "path": "./packages/dsh-mail-core" }
+    { "path": "./packages/dsh-mail-core" },
+    { "path": "./packages/dsh-mail-digest" }
   ]
 }
