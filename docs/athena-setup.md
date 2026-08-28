@@ -120,6 +120,34 @@ rm -rf ~/.dsh/profiles/mail-agent-smoke
 A French answer in a few seconds means the harness, the adapter, the credential
 and the gateway are all correct together.
 
+## Opening Creator mode
+
+Creator mode is an agent **preset inside the web client**, not a profile: the
+profile must therefore carry `@deepseek-ai/dsh-web-app`, and you reach the
+preset from a menu in the browser. `mail-agent-dev` carries it.
+
+On the host:
+
+```bash
+dsh --profile mail-agent-dev
+# dsh web: http://127.0.0.1:3080/?token=<printed once at boot>
+```
+
+From your workstation, in another terminal:
+
+```bash
+ssh -L 3080:127.0.0.1:3080 athena
+```
+
+Then open the tokenized URL the host printed. The server binds `127.0.0.1`
+only and rejects a request without the token, so the tunnel is the whole
+access path. The token is new on every boot.
+
+Pick **Creator mode** from the agent-preset menu: it adds runtime inspection
+and plugin experiments to the standard capabilities. Treat that session as
+shell access on this host (PRD §5.2), and never point it at the production
+profile or at a real mailbox before Phase 3.
+
 ## The service
 
 `~/.config/systemd/user/dsh-mail-agent.service` runs `mail-agent-prod`. It is a
