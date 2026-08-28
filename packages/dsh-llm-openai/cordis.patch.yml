@@ -1,0 +1,22 @@
+# The dsh-llm-openai bundle patch: one adapter instance serving the four call
+# tiers of PRD section 3.6.
+#
+# One row rather than four. The PRD sketches a row per tier, but the tiers are
+# provider routes over a single adapter instance: that resolves the credential
+# once, keeps one place for the endpoint allow-list, and still yields the four
+# routes `mail-llm-economy`, `-default`, `-chat` and `-draft`.
+#
+# No credential appears here. `apiKeyEnv` names an environment variable that
+# the harness resolves at boot; the value lives in $DSH_HOME/.env.
+
+- insert:
+    - id: mail.llm.openai
+      name: '@dsh-mail-agent/llm-openai'
+      config:
+        baseUrl: https://chat.lucie.ovh.linagora.com/v1/
+        model: Mistral-Small-3.2-24B-Instruct-2506-FP8
+        apiKeyEnv: MAIL_SENTINEL_API_KEY
+        # Enforced at boot, not per request: a typo here should fail the
+        # profile rather than quietly send mail content elsewhere.
+        trustedEndpoints:
+          - https://chat.lucie.ovh.linagora.com/v1/

@@ -15,13 +15,20 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml"
   },
   "files": [
-    "dist"
+    "dist",
+    "cordis.patch.yml"
   ],
   "engines": {
     "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "catalog:",
