@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test and coverage
+coverage/
+.vitest/
+
+# Secrets — never commit credentials, tokens or API keys (cf. PRD §3.7)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+tokens.enc
+
+# Local DSH state
+.dsh/
+*.sqlite
+*.sqlite-journal
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
