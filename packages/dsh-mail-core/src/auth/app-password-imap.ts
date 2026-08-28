@@ -10,7 +10,10 @@ import type { SecretStore } from './token-store.js';
 
 export interface AppPasswordConfig {
   readonly user: string;
-  /** Reference such as `dsh:secret:imap-app-password`, never the password. */
+  /**
+   * The environment-variable name holding the password, never the password.
+   * The harness credential seam addresses secrets by name.
+   */
   readonly passwordRef: string;
 }
 
@@ -41,10 +44,15 @@ export async function readAppPassword(
  */
 export function assertNoInlineSecret(config: Readonly<Record<string, unknown>>): void {
   for (const [key, value] of Object.entries(config)) {
-    const looksLikeSecret = /password|secret|token|api[-_]?key/i.test(key);
-    const isReference = typeof value === 'string' && value.startsWith('dsh:secret:');
-    if (looksLikeSecret && typeof value === 'string' && !isReference && !key.endsWith('Ref')) {
-      throw new TypeError(`${key} must be a dsh:secret: reference, not a literal value`);
+    if (typeof value !== 'string') continue;
+    if (!/password|secret|token|api[-_]?key/i.test(key)) continue;
+    // A field already named as a reference is one; otherwise the value must
+    // itself look like an environment-variable name rather than a credential.
+    if (key.endsWith('Ref') || key.endsWith('Env')) continue;
+    if (!/^[A-Z][A-Z0-9_]*$/.test(value)) {
+      throw new TypeError(
+        `${key} must name an environment variable, not carry a literal value`,
+      );
     }
   }
 }

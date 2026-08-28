@@ -6,27 +6,30 @@ that is an unattended refresh.
 
 ## What the identity provider decides
 
-Three values come from the OAuth client registered at your issuer:
+Three values come from the OAuth client registered at your issuer. The harness
+credential seam addresses secrets **by environment-variable name**, not by a URI
+scheme: configuration carries the name, and the local provider owns the value in
+`$DSH_HOME/.env`.
 
-| Value | Where it lives |
-|---|---|
-| `client_id` | `dsh:secret:jmap-oidc-client-id` |
-| `client_secret` (confidential clients only) | `dsh:secret:jmap-oidc-client-secret` |
-| `issuer` | `cordis.patch.yml`, in the clear |
-| `redirect_uri` | `cordis.patch.yml`, in the clear |
+| Value | Reference | Secret? |
+|---|---|---|
+| `client_id` | `MAIL_SENTINEL_OIDC_CLIENT_ID` | yes, by project convention |
+| `client_secret` (confidential clients only) | `MAIL_SENTINEL_OIDC_CLIENT_SECRET` | yes |
+| `issuer` | `MAIL_SENTINEL_OIDC_ISSUER` | no, public metadata |
+| `redirect_uri` | `MAIL_SENTINEL_OIDC_REDIRECT_URI` | no, public metadata |
+| stored tokens | `MAIL_SENTINEL_JMAP_TOKENS` | yes |
 
 ```yaml
 - id: jmap.auth
   name: '@dsh-mail-agent/mail-core'
   config:
     oidc:
-      issuer: https://sso.example.com
-      client_id_ref: dsh:secret:jmap-oidc-client-id
-      client_secret_ref: dsh:secret:jmap-oidc-client-secret
-      redirect_uri: https://example.org/oauth/jmap/callback
+      issuerEnv: MAIL_SENTINEL_OIDC_ISSUER
+      clientIdEnv: MAIL_SENTINEL_OIDC_CLIENT_ID
+      clientSecretEnv: MAIL_SENTINEL_OIDC_CLIENT_SECRET
+      redirectUriEnv: MAIL_SENTINEL_OIDC_REDIRECT_URI
       scopes: [openid, profile, email, offline_access]
-    token_storage:
-      ref: dsh:secret:jmap-tokens
+    tokensEnv: MAIL_SENTINEL_JMAP_TOKENS
 ```
 
 `offline_access` is what earns a refresh token. Without it the agent has to be
@@ -78,9 +81,8 @@ own handler will consume the single-use code before you can.
 
 A refresh token is bound to the OAuth client, not to the process that obtained
 it. If another application is registered under the **same `client_id`** and
-already holds a refresh token for the mailbox, storing that token under
-`dsh:secret:jmap-tokens` is enough: the agent refreshes from it and never needs
-a browser at all.
+already holds a refresh token for the mailbox, adopting it is enough — see
+`mail-auth adopt` below. The agent refreshes from it and never needs a browser.
 
 This is the least work and the least infrastructure. Its only cost is that the
 first token was obtained elsewhere, so the two deployments share a credential

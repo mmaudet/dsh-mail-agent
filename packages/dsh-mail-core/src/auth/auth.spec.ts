@@ -403,18 +403,21 @@ describe('assertNoInlineSecret', () => {
   it('rejects a password written straight into configuration', () => {
     expect(() => {
       assertNoInlineSecret({ user: 'me', password: 'hunter2' });
-    }).toThrow(/must be a dsh:secret: reference/);
+    }).toThrow(/must name an environment variable/);
   });
 
-  it('accepts a reference', () => {
+  it('accepts a value that names an environment variable', () => {
     expect(() => {
-      assertNoInlineSecret({ user: 'me', password: 'dsh:secret:imap-app-password' });
+      assertNoInlineSecret({ user: 'me', password: 'MAIL_SENTINEL_IMAP_PASSWORD' });
     }).not.toThrow();
   });
 
   it('accepts a field already named as a reference', () => {
     expect(() => {
-      assertNoInlineSecret({ passwordRef: 'dsh:secret:imap-app-password' });
+      assertNoInlineSecret({ passwordRef: 'MAIL_SENTINEL_IMAP_PASSWORD' });
+    }).not.toThrow();
+    expect(() => {
+      assertNoInlineSecret({ apiKeyEnv: 'MAIL_SENTINEL_API_KEY' });
     }).not.toThrow();
   });
 });
