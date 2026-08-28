@@ -3,6 +3,7 @@
   "include": [],
   "references": [
     { "path": "./packages/dsh-mail-core" },
-    { "path": "./packages/dsh-mail-digest" }
+    { "path": "./packages/dsh-mail-digest" },
+    { "path": "./packages/dsh-llm-openai" }
   ]
 }

@@ -1,0 +1,36 @@
+{
+  "name": "@dsh-mail-agent/llm-openai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI-compatible LLM adapter and four-tier model router for the DSH mail agent",
+  "license": "MIT",
+  "author": "Michel-Marie Maudet <mmaudet@linagora.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmaudet/dsh-mail-agent.git",
+    "directory": "packages/dsh-llm-openai"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
