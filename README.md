@@ -62,6 +62,7 @@ pnpm test
 - [docs/athena-setup.md](docs/athena-setup.md) — provisioning the 24/7 agent host
 - [docs/adapters.md](docs/adapters.md) — switching between JMAP and IMAP
 - [docs/jmap-oidc-setup.md](docs/jmap-oidc-setup.md) — authorising JMAP access
+- [docs/article-notes.md](docs/article-notes.md) — field notes for the public write-up
 - [docs/decisions/](docs/decisions/) — architecture decision records
 - [CONTRIBUTING.md](CONTRIBUTING.md) — conventions and local workflow
 
