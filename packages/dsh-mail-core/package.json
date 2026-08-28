@@ -23,12 +23,16 @@
   "engines": {
     "node": ">=22"
   },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "catalog:"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

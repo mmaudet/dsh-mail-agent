@@ -5,6 +5,7 @@ packages:
 # Single source of truth for versions shared across every bundle.
 # Referenced from each package.json as "catalog:".
 catalog:
+  '@deepseek-ai/cordis': ^4.0.1
   '@types/node': ^22.20.1
   typescript: ^7.0.2
   vitest: ^4.1.11
