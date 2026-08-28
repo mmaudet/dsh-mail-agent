@@ -60,8 +60,33 @@ export function envFilePath(env: Readonly<Record<string, string | undefined>>): 
   return join(env['DSH_HOME'] ?? join(homedir(), '.dsh'), '.env');
 }
 
+const USAGE = [
+  'usage: mail-auth <command>',
+  '',
+  '  begin               print the URL to open in a browser',
+  '  complete <pasted>   exchange the code that came back',
+  '  adopt               adopt a refresh token, read from stdin',
+  '  status              what is stored, without disclosing it',
+  '',
+  'Configuration comes from $DSH_HOME/.env:',
+  '  MAIL_SENTINEL_OIDC_ISSUER, MAIL_SENTINEL_OIDC_REDIRECT_URI,',
+  '  MAIL_SENTINEL_OIDC_CLIENT_ID, MAIL_SENTINEL_OIDC_CLIENT_SECRET (optional)',
+];
+
 export async function run(argv: readonly string[], io: CliEnvironment): Promise<number> {
   const [command, ...rest] = argv;
+
+  // Usage must work before configuration does: an operator discovering the
+  // command has not set anything up yet.
+  if (command === undefined || command === '--help' || command === '-h') {
+    for (const line of USAGE) io.log(line);
+    return 0;
+  }
+  if (!['begin', 'complete', 'adopt', 'status'].includes(command)) {
+    for (const line of USAGE) io.log(line);
+    return 2;
+  }
+
   const secrets = new EnvFileStore(envFilePath(io.env));
   const bootstrap = new JmapBootstrap({
     config: resolveConfig(io.env),
@@ -131,10 +156,9 @@ export async function run(argv: readonly string[], io: CliEnvironment): Promise<
       return status.expired && !status.canRenew ? 1 : 0;
     }
 
-    default: {
-      io.log('usage: mail-auth <begin|complete|adopt|status>');
-      return command === undefined || command === '--help' ? 0 : 2;
-    }
+    default:
+      // Unreachable: the command was validated above.
+      return 2;
   }
 }
 

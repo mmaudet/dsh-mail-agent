@@ -21,6 +21,9 @@
       "default": "./dist/auth/cli.js"
     }
   },
+  "bin": {
+    "mail-auth": "./dist/auth/bin.js"
+  },
   "files": [
     "dist"
   ],

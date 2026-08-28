@@ -351,6 +351,22 @@ describe('the command line', () => {
     expect(context.lines.join('\n')).toContain('usage: mail-auth');
   });
 
+  it('explains itself before anything is configured', async () => {
+    // An operator meeting the command has not set up a .env yet, so help
+    // must not depend on one.
+    const context: CliEnvironment & { lines: string[] } = {
+      lines: [],
+      env: {},
+      log(line) {
+        this.lines.push(line);
+      },
+      readStdin: () => Promise.resolve(''),
+    };
+
+    expect(await run(['--help'], context)).toBe(0);
+    expect(context.lines.join('\n')).toContain('MAIL_SENTINEL_OIDC_ISSUER');
+  });
+
   it('says what to do first when nothing is pending', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-cli-'));
     const context = io({ DSH_HOME: dir });
