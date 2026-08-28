@@ -59,6 +59,9 @@ pnpm test
 ## Documentation
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, architecture and phase plan
+- [docs/athena-setup.md](docs/athena-setup.md) — provisioning the 24/7 agent host
+- [docs/adapters.md](docs/adapters.md) — switching between JMAP and IMAP
+- [docs/jmap-oidc-setup.md](docs/jmap-oidc-setup.md) — authorising JMAP access
 - [docs/decisions/](docs/decisions/) — architecture decision records
 - [CONTRIBUTING.md](CONTRIBUTING.md) — conventions and local workflow
 
