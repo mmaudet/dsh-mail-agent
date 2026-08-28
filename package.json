@@ -1,0 +1,32 @@
+{
+  "name": "dsh-mail-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DeepSeek Harness mail agent with JMAP/IMAP adapters and a portable cockpit",
+  "license": "MIT",
+  "author": "Michel-Marie Maudet <mmaudet@linagora.com>",
+  "homepage": "https://github.com/mmaudet/dsh-mail-agent#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmaudet/dsh-mail-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mmaudet/dsh-mail-agent/issues"
+  },
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b --noEmit",
+    "test": "pnpm -r --stream test"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,9 @@
+packages:
+  - 'packages/*'
+
+# Single source of truth for versions shared across every bundle.
+# Referenced from each package.json as "catalog:".
+catalog:
+  '@types/node': ^22.20.1
+  typescript: ^7.0.2
+  vitest: ^4.1.11
