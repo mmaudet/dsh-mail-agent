@@ -197,6 +197,55 @@ of resume bug.
 
 ---
 
+## §3 — Creator mode, first session
+
+First contact, 2026-08-28, ~23h30. Two findings, and the second is the article's
+paragraph.
+
+**The context ceiling was the blocker, and swapping the endpoint fixed it.**
+The session ran a turn with 199k input tokens against `mistralai/mistral-small-2603`
+where the sovereign gateway caps a whole request at 16 384. Nothing in the
+harness had to change: a tier's endpoint is configuration.
+
+**The agent asserted an absence it had no way to check.** Asked to list the
+configured LLM providers, it answered that *"le service `llm` n'est pas exposé
+dans cette session"*. That is false: `--dump-config` shows `id: llm` at line 10
+of the host composition, and the session's own model selector read
+`mail-llm-default` — the provider it claimed not to see was the one answering
+the question.
+
+What makes this worth publishing is not that a model was wrong. It is *how* the
+error was caught: the operator had out-of-model context — a model selector in
+the corner of the screen — that contradicted the model's own conclusion. No
+amount of prompting would have surfaced that; the cross-check came from
+outside the loop.
+
+**Two diagnoses were proposed and both were wrong**, which is itself the
+lesson. The first blamed a host-versus-preset layering and pointed at
+`~/.dsh/.agent-presets/mail-agent-dev/cordis.yml`. That path does not exist,
+and the provider is not preset-scoped: it arrives through the bundle's
+`cordis.patch.yml` as an ordinary host layer. The second blamed synthesis of a
+correct tool result. Reading the source settled it:
+
+```ts
+export type CordisInspectPlatform = 'host' | 'client'
+```
+
+There is no `preset` platform. The follow-up prompt asked the agent to query one
+anyway, and it span for minutes looking for a value that is not in the
+enumeration.
+
+So the honest finding is narrower and more useful than either guess: the
+introspection tool does not cover the surface an operator assumes it covers,
+and the agent filled the gap with a confident negative instead of reporting
+that it could not tell. A tool that cannot see something should say so; one
+that lets the model infer absence from silence turns a blind spot into an
+assertion.
+
+**Cost note:** four turns, 17 steps, 564k input tokens. Cheap in euros at this
+model's pricing, but the thrashing on an impossible parameter is what spent
+most of it.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
