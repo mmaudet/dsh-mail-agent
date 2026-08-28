@@ -246,6 +246,53 @@ assertion.
 model's pricing, but the thrashing on an impossible parameter is what spent
 most of it.
 
+### The observability is what caught the model
+
+Worth a screenshot in the article, because the detail that mattered was not in
+the conversation. The session surface shows, permanently and without asking:
+
+```
+4 turns · 17 steps | LLM 26.9s · Tool call 0.3s | TTFT avg 1.3s · 146 tok/s
+Cache hit 77% | Input 564K tok · Output 733 tok
+```
+
+plus per-turn usage inline, a collapsible tool-call list, a Trajectory tab
+beside the chat, and — the one that counted — the resolved provider and model
+in the corner: `mail-llm-default/Mistral-Small-3.2-24B`.
+
+The agent claimed no LLM provider was mounted while the interface displayed
+the provider answering it, two inches away. The contradiction was legible
+because the harness publishes its own routing rather than hiding it behind the
+conversation. An agent framework that only shows you the chat gives the
+operator nothing to check against.
+
+That is the argument for the section, and it is narrower than "observability is
+good": the cross-check worked because the harness surfaced a fact the model
+had no incentive to mention.
+
+### Where Creator mode becomes shell access, concretely
+
+The PRD asks this section to say where the trust boundary bites. It stopped
+being abstract when the agent, unprompted, proposed its next step:
+
+> Charger le preset "mail-agent-dev" via `ctx.agentPresets.mount()` ou en
+> démarrant une session avec ce preset
+>
+> Souhaitez-vous que je tente de charger le preset "mail-agent-dev" pour
+> accéder aux LLM providers configurés ?
+
+An agent offering to mount a preset into the running composition, as a routine
+follow-up, in order to see more. That is the whole trust boundary in one
+sentence: Creator mode does not merely inspect the runtime, it can change it,
+and the model will suggest doing so while reasoning about a read-only question.
+
+The offer was reasonable and the model was being helpful. That is exactly why
+the boundary has to be procedural rather than a matter of judgement — hence
+never pointing a Creator session at the production profile or a real mailbox
+(PRD §5.4). The permission selector in the composer read `Workspace Write` for
+this session, which is the right default and also the reason the question was
+asked rather than acted upon.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
