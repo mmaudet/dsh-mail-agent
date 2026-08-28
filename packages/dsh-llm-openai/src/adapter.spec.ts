@@ -6,6 +6,7 @@ import {
   assertTrusted,
   type EndpointRoute,
   type Fetcher,
+  type RouteSelection,
 } from './openai-endpoint.js';
 import { resolveRoutes, type OpenAiPluginConfig } from './index.js';
 import { serializeRequest } from './serialize.js';
@@ -523,5 +524,127 @@ describe('reasoning levels', () => {
     const info = await adapter.resolveModel('mail-llm-economy', MODEL);
 
     expect(info.reasoning).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fallback chain
+// ---------------------------------------------------------------------------
+
+describe('the fallback chain', () => {
+  const PRIMARY = 'mail-llm-economy';
+  const BACKUP = 'mail-llm-economy-backup';
+
+  function chained(
+    handlers: readonly ((url: string) => Response | Error)[],
+  ): { adapter: OpenAiEndpointAdapter; selections: RouteSelection[]; urls: string[] } {
+    const selections: RouteSelection[] = [];
+    const urls: string[] = [];
+    let call = 0;
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([
+        [PRIMARY, route({ baseUrl: 'https://primary.test/v1', fallback: [BACKUP] })],
+        [BACKUP, route({ baseUrl: 'https://backup.test/v1' })],
+      ]),
+      onRouteSelected: (event) => selections.push(event),
+      fetcher: (url) => {
+        urls.push(url);
+        const outcome = handlers[call++] ?? handlers.at(-1);
+        const result = outcome?.(url);
+        return result instanceof Error ? Promise.reject(result) : Promise.resolve(result as Response);
+      },
+    });
+    return { adapter, selections, urls };
+  }
+
+  const ok = (): Response =>
+    new Response(sseStream(chunk({ content: 'ok' }, 'stop'), '[DONE]'), { status: 200 });
+
+  it('does not touch the backup when the primary answers', async () => {
+    const { adapter, selections, urls } = chained([ok]);
+    await collect(adapter.stream(options({ provider: PRIMARY })));
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('primary.test');
+    expect(selections).toStrictEqual([]);
+  });
+
+  it('falls over when the primary is unreachable', async () => {
+    const { adapter, selections, urls } = chained([() => new Error('ECONNREFUSED'), ok]);
+    const chunks = await collect(adapter.stream(options({ provider: PRIMARY })));
+
+    expect(urls[1]).toContain('backup.test');
+    expect(chunks.at(-1)?.type).toBe('finish');
+    expect(selections).toStrictEqual([
+      { requested: PRIMARY, served: BACKUP, attempted: [PRIMARY] },
+    ]);
+  });
+
+  it('falls over on a 5xx, which is the endpoint failing', async () => {
+    const { adapter, urls } = chained([() => new Response('boom', { status: 503 }), ok]);
+    await collect(adapter.stream(options({ provider: PRIMARY })));
+    expect(urls[1]).toContain('backup.test');
+  });
+
+  it('falls over on a rate limit', async () => {
+    const { adapter, urls } = chained([() => new Response('slow', { status: 429 }), ok]);
+    await collect(adapter.stream(options({ provider: PRIMARY })));
+    expect(urls[1]).toContain('backup.test');
+  });
+
+  it('does not fall over on a 4xx, which every route would reject alike', async () => {
+    const { adapter, urls } = chained([() => new Response('bad request', { status: 400 })]);
+    await expect(collect(adapter.stream(options({ provider: PRIMARY })))).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+    });
+    expect(urls).toHaveLength(1);
+  });
+
+  it('does not fall over once a chunk has reached the caller', async () => {
+    // A stream that starts, then truncates: replaying on the backup would
+    // hand the loop the opening text twice.
+    const truncated = (): Response =>
+      new Response(sseStream(chunk({ content: 'partial' })), { status: 200 });
+    const { adapter, urls } = chained([truncated, ok]);
+
+    const seen: StreamChunk[] = [];
+    await expect(
+      (async () => {
+        for await (const c of adapter.stream(options({ provider: PRIMARY }))) seen.push(c);
+      })(),
+    ).rejects.toThrow(/\[DONE\]/);
+
+    expect(seen.some((c) => c.type === 'text-delta')).toBe(true);
+    expect(urls).toHaveLength(1);
+  });
+
+  it('does not fall over when the caller cancelled', async () => {
+    const controller = new AbortController();
+    const { adapter, urls } = chained([
+      () => {
+        controller.abort();
+        return new Error('aborted');
+      },
+      ok,
+    ]);
+
+    await expect(
+      collect(adapter.stream(options({ provider: PRIMARY, signal: controller.signal }))),
+    ).rejects.toBeDefined();
+    expect(urls).toHaveLength(1);
+  });
+
+  it('reports the last failure when the whole chain is down', async () => {
+    const { adapter, urls } = chained([() => new Error('down'), () => new Error('also down')]);
+    await expect(collect(adapter.stream(options({ provider: PRIMARY })))).rejects.toMatchObject({
+      code: 'NETWORK',
+    });
+    expect(urls).toHaveLength(2);
+  });
+
+  it('has an empty chain today, which is the sovereign posture', () => {
+    const single = new OpenAiEndpointAdapter({ routes: new Map([[PRIMARY, route()]]) });
+    expect(single).toBeDefined();
+    expect(route().fallback).toBeUndefined();
   });
 });

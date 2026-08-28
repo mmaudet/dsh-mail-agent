@@ -95,6 +95,29 @@ Costs, accepted knowingly:
   100-300 ms; measurement says 1.7-2.8 s. The topology holds, but the cascade's
   hit rate stops being an efficiency metric and becomes the feature.
 
+## The fallback chain, built empty
+
+The adapter carries an ordered fallback chain: a route may name others to try
+when it cannot answer. It is empty today, because the gateway serves exactly
+one model that can drive a loop, so there is nowhere sovereign to fall over to.
+
+Building it now rather than when it is needed is deliberate. The work is the
+same whatever endpoint it eventually points at, and having it ready means
+gaining a second sovereign route is a configuration edit under an unchanged
+allow-list — not a code change made under pressure while the primary is down.
+
+Two rules keep it honest. A failure only falls over when another endpoint could
+plausibly answer it: transport failures, timeouts, rate limits and 5xx do,
+while a 4xx does not, because a rejected request is rejected everywhere.
+And a route that has already emitted a chunk owns the answer — falling over
+then would hand the loop content it has already consumed, so the chain is only
+available before the first emission.
+
+Routing an off-perimeter provider through this chain would need the allow-list
+widened deliberately, which `trusted_endpoints_only` makes a visible act rather
+than an accident. That remains outside the perimeter this ADR and
+[ADR-0001](ADR-0001-topology.md) describe.
+
 ## What would change this
 
 Ask the gateway operators to start Luciole-23B with `--enable-auto-tool-choice`

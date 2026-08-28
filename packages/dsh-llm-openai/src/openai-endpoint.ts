@@ -37,6 +37,14 @@ export interface EndpointRoute {
    * into a configuration change rather than an adapter change.
    */
   readonly reasoning?: ReasoningSettings | undefined;
+  /**
+   * Other route keys to try, in order, when this one cannot answer.
+   *
+   * Empty today: the sovereign gateway serves one model that can drive a
+   * loop, so there is nowhere to fall over to. The chain exists so that
+   * gaining a second route is a configuration edit.
+   */
+  readonly fallback?: readonly string[] | undefined;
 }
 
 export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
@@ -50,6 +58,18 @@ export interface OpenAiAdapterOptions {
    */
   readonly trustedEndpoints?: readonly string[] | undefined;
   readonly fetcher?: Fetcher | undefined;
+  /**
+   * Observability hook: which route actually answered, and after how many
+   * failed attempts. An operator needs to know a fallback served a call.
+   */
+  readonly onRouteSelected?: ((event: RouteSelection) => void) | undefined;
+}
+
+export interface RouteSelection {
+  readonly requested: string;
+  readonly served: string;
+  /** Routes that failed before this one answered, in order. */
+  readonly attempted: readonly string[];
 }
 
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -58,12 +78,14 @@ export class OpenAiEndpointAdapter extends LlmAdapter {
   readonly #routes: ReadonlyMap<string, EndpointRoute>;
   readonly #trusted: readonly string[];
   readonly #fetch: Fetcher;
+  readonly #onRouteSelected: ((event: RouteSelection) => void) | undefined;
 
   constructor(options: OpenAiAdapterOptions) {
     super();
     this.#routes = options.routes;
     this.#trusted = options.trustedEndpoints ?? [];
     this.#fetch = options.fetcher ?? ((url, init) => fetch(url, init));
+    this.#onRouteSelected = options.onRouteSelected;
 
     for (const [provider, route] of this.#routes) {
       assertTrusted(route.baseUrl, this.#trusted, provider);
@@ -100,38 +122,82 @@ export class OpenAiEndpointAdapter extends LlmAdapter {
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const route = this.#routes.get(options.provider);
-    if (route === undefined) {
-      throw new LlmError(`No endpoint configured for ${options.provider}`, 'UNKNOWN_PROVIDER');
+    const chain = this.#chain(options.provider);
+    const attempted: string[] = [];
+
+    for (const [position, key] of chain.entries()) {
+      const route = this.#routes.get(key);
+      if (route === undefined) {
+        throw new LlmError(`No endpoint configured for ${key}`, 'UNKNOWN_PROVIDER');
+      }
+      const isLast = position === chain.length - 1;
+
+      const body = serializeRequest(
+        { ...options, maxTokens: options.maxTokens ?? route.maxTokens },
+        {
+          model: route.model,
+          ...(route.supportsStop === undefined ? {} : { supportsStop: route.supportsStop }),
+          ...(route.supportsTools === undefined ? {} : { supportsTools: route.supportsTools }),
+          ...(route.reasoning === undefined ? {} : { reasoning: route.reasoning }),
+        },
+      );
+
+      // Once a chunk reaches the caller this route owns the answer: a later
+      // route would repeat content the loop has already consumed. Falling
+      // over is therefore only legal before the first emission.
+      let emitted = false;
+      try {
+        for await (const chunk of this.#attempt(route, body, options.signal)) {
+          if (!emitted) {
+            emitted = true;
+            this.#announce(options.provider, key, attempted);
+          }
+          yield chunk;
+        }
+        if (!emitted) this.#announce(options.provider, key, attempted);
+        return;
+      } catch (error: unknown) {
+        if (emitted) throw error;
+        if (options.signal?.aborted === true) throw error;
+        if (isLast || !fallsOver(error)) throw error;
+        attempted.push(key);
+      }
     }
+  }
 
-    const body = serializeRequest(
-      { ...options, maxTokens: options.maxTokens ?? route.maxTokens },
-      {
-        model: route.model,
-        ...(route.supportsStop === undefined ? {} : { supportsStop: route.supportsStop }),
-        ...(route.supportsTools === undefined ? {} : { supportsTools: route.supportsTools }),
-        ...(route.reasoning === undefined ? {} : { reasoning: route.reasoning }),
-      },
-    );
+  /** The requested route followed by its declared fallbacks, deduplicated. */
+  #chain(provider: string): string[] {
+    const route = this.#routes.get(provider);
+    const chain = [provider, ...(route?.fallback ?? [])];
+    return [...new Set(chain)];
+  }
 
-    // The caller's cancellation and the route deadline both end the request;
-    // whichever fires first wins, and the caller's own reason is preserved.
+  #announce(requested: string, served: string, attempted: readonly string[]): void {
+    if (attempted.length === 0 && requested === served) return;
+    this.#onRouteSelected?.({ requested, served, attempted: [...attempted] });
+  }
+
+  /** One route attempt, with its own deadline. */
+  async *#attempt(
+    route: EndpointRoute,
+    body: unknown,
+    callerSignal: AbortSignal | undefined,
+  ): AsyncGenerator<StreamChunk> {
     const deadline = new AbortController();
     const timeout = setTimeout(() => {
       deadline.abort(new LlmError('Endpoint timed out', 'TIMEOUT'));
     }, route.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     const onAbort = (): void => {
-      deadline.abort(options.signal?.reason);
+      deadline.abort(callerSignal?.reason);
     };
-    options.signal?.addEventListener('abort', onAbort, { once: true });
+    callerSignal?.addEventListener('abort', onAbort, { once: true });
 
     try {
       const response = await this.#send(route, body, deadline.signal);
       yield* readStream(response);
     } finally {
       clearTimeout(timeout);
-      options.signal?.removeEventListener('abort', onAbort);
+      callerSignal?.removeEventListener('abort', onAbort);
     }
   }
 
@@ -164,10 +230,11 @@ export class OpenAiEndpointAdapter extends LlmAdapter {
       // that a log or a session transcript will keep.
       const body = (await response.text().catch(() => '')).slice(0, 200);
       const detail = redactSecret(body, route.apiKey);
+      // The status is carried by the code, not by a field: the seam routes on
+      // `code` alone, and a 5xx is a different failure class from a 4xx.
       throw new LlmError(
         `Endpoint returned ${String(response.status)}: ${detail}`,
-        response.status === 429 ? 'RATE_LIMIT' : 'PROVIDER_ERROR',
-        { status: response.status },
+        statusCode(response.status),
       );
     }
     if (response.body === null) {
@@ -195,6 +262,44 @@ async function* readStream(response: Response): AsyncGenerator<StreamChunk> {
     yield* translator.accept(parsed);
   }
   yield* translator.flush();
+}
+
+/**
+ * Whether a failure is worth trying another route for.
+ *
+ * A transport failure or an overloaded endpoint may well be answered by a
+ * different one. A rejected request, an unsupported option or a configuration
+ * error would fail identically everywhere, so retrying only wastes a call and
+ * delays the real error reaching the caller.
+ */
+export function fallsOver(error: unknown): boolean {
+  if (!(error instanceof LlmError)) return false;
+
+  switch (error.code) {
+    case 'NETWORK':
+    case 'TIMEOUT':
+    case 'STREAM_CLOSED':
+    case 'RATE_LIMIT':
+      return true;
+    case 'PROVIDER_UNAVAILABLE':
+      return true;
+    // PROVIDER_ERROR is a 4xx: the request itself is wrong, and another
+    // endpoint would reject it the same way.
+    default:
+      return false;
+  }
+}
+
+/**
+ * The failure class for an HTTP status.
+ *
+ * A 5xx is the endpoint failing and worth another route; a 4xx is the request
+ * being wrong and worth none.
+ */
+export function statusCode(status: number): string {
+  if (status === 429) return 'RATE_LIMIT';
+  if (status >= 500) return 'PROVIDER_UNAVAILABLE';
+  return 'PROVIDER_ERROR';
 }
 
 /**
