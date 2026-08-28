@@ -207,44 +207,67 @@ The session ran a turn with 199k input tokens against `mistralai/mistral-small-2
 where the sovereign gateway caps a whole request at 16 384. Nothing in the
 harness had to change: a tier's endpoint is configuration.
 
-**The agent asserted an absence it had no way to check.** Asked to list the
-configured LLM providers, it answered that *"le service `llm` n'est pas exposé
-dans cette session"*. That is false: `--dump-config` shows `id: llm` at line 10
-of the host composition, and the session's own model selector read
-`mail-llm-default` — the provider it claimed not to see was the one answering
-the question.
+**The agent reported an absence that was plane-correct and read as global.**
+Asked to list the configured LLM providers, it answered that *"le service `llm`
+n'est pas exposé dans cette session"*. The operator read that as "no provider is
+mounted" — and the session's own model selector, two inches away, read
+`mail-llm-default`.
 
-What makes this worth publishing is not that a model was wrong. It is *how* the
-error was caught: the operator had out-of-model context — a model selector in
-the corner of the screen — that contradicted the model's own conclusion. No
-amount of prompting would have surfaced that; the cross-check came from
-outside the loop.
+The harness turns out to be right and the sentence misleading. The `cordis`
+preset's persona states the rule plainly:
 
-**Two diagnoses were proposed and both were wrong**, which is itself the
-lesson. The first blamed a host-versus-preset layering and pointed at
-`~/.dsh/.agent-presets/mail-agent-dev/cordis.yml`. That path does not exist,
-and the provider is not preset-scoped: it arrives through the bundle's
-`cordis.patch.yml` as an ordinary host layer. The second blamed synthesis of a
-correct tool result. Reading the source settled it:
+> Two planes decide where an edit belongs. The HOST composition holds the
+> registries and anything shared across sessions — persistence, the sandbox and
+> approval stack, **the model route** [...] An AGENT PRESET holds what one
+> session contributes to those registries.
+
+The model route is host-plane. A session's preset contributes no `llm` service,
+so an inspection scoped to what the session contributes finds none — truthfully.
+Rendered as "not exposed in this session", that reads to an operator as
+"absent", and the distinction that makes it true is invisible in the prose.
+
+This is a better finding than a hallucination would have been. The two-plane
+model is real, documented, and load-bearing; what failed was the report, not
+the introspection. An answer that said "no LLM row in this preset; the route is
+host-plane" would have been the same fact and no confusion.
+
+**The second session is the harder failure.** Told to query the `preset`
+platform, a new session in **Standard mode** span for 28 steps and 462k tokens:
+checking environment variables, hunting for preset YAML files, reading a
+shipped preset off disk, grepping for a `services` section — then printed
+*"Task completed."* having answered nothing.
+
+Two causes, both structural:
+
+```
+preset standard : 0 rows of dsh-tool-cordis
+preset cordis   : 2 rows  → id: tool-cordis
+```
+
+`cordis_inspect_query` is contributed by the `cordis` preset alone. In Standard
+mode the tool does not exist, and nothing said so — the agent inferred it must
+be reachable somehow and improvised with shell archaeology. And the platform
+axis it was asked for does not exist either:
 
 ```ts
 export type CordisInspectPlatform = 'host' | 'client'
 ```
 
-There is no `preset` platform. The follow-up prompt asked the agent to query one
-anyway, and it span for minutes looking for a value that is not in the
-enumeration.
+There is no `preset` platform to query.
 
-So the honest finding is narrower and more useful than either guess: the
-introspection tool does not cover the surface an operator assumes it covers,
-and the agent filled the gap with a confident negative instead of reporting
-that it could not tell. A tool that cannot see something should say so; one
-that lets the model infer absence from silence turns a blind spot into an
-assertion.
+The part worth publishing is the ending. **An agent that declares "Task
+completed" on an unmet goal is worse than one that fails**, because the operator
+has to reconstruct what happened from a token counter. Twenty-eight steps of
+plausible-looking tool calls produced a confident closing statement and no
+answer.
 
-**Cost note:** four turns, 17 steps, 564k input tokens. Cheap in euros at this
-model's pricing, but the thrashing on an impossible parameter is what spent
-most of it.
+**A correction to make in public too.** Two diagnoses were proposed for the
+first session, and the reflex was to dismiss both. One pointed at
+`~/.dsh/.agent-presets/<id>/` and was called invented because the directory was
+absent. It is the documented location for presets you author — absent only
+because none had been authored yet. Checking that a path is empty is not the
+same as checking that it is wrong, and the difference took a second pass through
+the source to see.
 
 ### The observability is what caught the model
 
