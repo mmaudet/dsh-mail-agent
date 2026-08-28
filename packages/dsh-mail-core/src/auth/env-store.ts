@@ -44,7 +44,7 @@ export class EnvFileStore implements SecretStore {
       throw new TypeError(`${ref} cannot contain a newline`);
     }
     const kept = (await this.#lines()).filter((line) => parseLine(line, ref) === null);
-    kept.push(`${ref}=${value}`);
+    kept.push(`${ref}=${quote(value)}`);
     await this.#save(kept);
   }
 
@@ -70,6 +70,18 @@ export class EnvFileStore implements SecretStore {
     await writeFile(this.#path, `${lines.join('\n')}\n`, { mode: 0o600 });
     await chmod(this.#path, 0o600);
   }
+}
+
+/**
+ * Quote a value that a shell would otherwise mangle.
+ *
+ * The harness parses this file itself, but people also `source` it, and an
+ * unquoted JSON value loses its quotes that way — which is exactly how a
+ * stored token record turns into something that no longer parses.
+ */
+function quote(value: string): string {
+  if (value.length > 0 && /^[A-Za-z0-9_./:@+-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 /** Read one line as `NAME=value`, returning the value only for a matching name. */

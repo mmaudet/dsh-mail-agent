@@ -392,3 +392,29 @@ describe('the command line', () => {
     expect(context.lines.join('\n')).toContain('stdin');
   });
 });
+
+describe('EnvFileStore quoting', () => {
+  it('keeps a value a shell would mangle readable after sourcing', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-env-'));
+    const path = join(dir, '.env');
+    const s = new EnvFileStore(path);
+
+    const record = JSON.stringify({ accessToken: 'at', scope: 'openid offline_access' });
+    await s.write('MAIL_SENTINEL_JMAP_TOKENS', record);
+
+    // Round-trips through the store...
+    expect(await s.read('MAIL_SENTINEL_JMAP_TOKENS')).toBe(record);
+    // ...and the line is quoted, so `source` does not strip the JSON quotes.
+    const line = (await readFile(path, 'utf8')).trim();
+    expect(line.startsWith("MAIL_SENTINEL_JMAP_TOKENS='")).toBe(true);
+  });
+
+  it('leaves a plain value unquoted, so the file stays readable', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-env-'));
+    const s = new EnvFileStore(join(dir, '.env'));
+    await s.write('MAIL_SENTINEL_API_BASE', 'https://chat.lucie.ovh.linagora.com/v1/');
+
+    const line = (await readFile(join(dir, '.env'), 'utf8')).trim();
+    expect(line).toBe('MAIL_SENTINEL_API_BASE=https://chat.lucie.ovh.linagora.com/v1/');
+  });
+});
