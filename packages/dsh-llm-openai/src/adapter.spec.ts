@@ -1,0 +1,454 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import { DEFAULT_MAX_TOKENS, TIERS, buildRoutes, escalate, routeKey, toTier } from './model-router.js';
+import {
+  OpenAiEndpointAdapter,
+  assertTrusted,
+  type EndpointRoute,
+  type Fetcher,
+} from './openai-endpoint.js';
+import { resolveRoutes, type OpenAiPluginConfig } from './index.js';
+import { serializeRequest } from './serialize.js';
+import { StreamTranslator } from './translate.js';
+import type { GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm';
+
+const GATEWAY = 'https://chat.lucie.ovh.linagora.com/v1/';
+const MODEL = 'Mistral-Small-3.2-24B-Instruct-2506-FP8';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function message(role: Message['role'], content: Message['content']): Message {
+  return { id: 'm1' as Message['id'], role, content, source: { kind: 'user' } };
+}
+
+function options(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
+  return {
+    provider: 'mail-llm-economy',
+    model: MODEL,
+    messages: [message('user', [{ type: 'text', text: 'Bonjour' }])],
+    ...overrides,
+  };
+}
+
+/** Frame payloads as an SSE byte stream, the way the gateway does. */
+function sseStream(...payloads: readonly string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const payload of payloads) controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      controller.close();
+    },
+  });
+}
+
+function chunk(delta: unknown, finish: string | null = null): string {
+  return JSON.stringify({ choices: [{ delta, finish_reason: finish }] });
+}
+
+function route(overrides: Partial<EndpointRoute> = {}): EndpointRoute {
+  return { baseUrl: GATEWAY, model: MODEL, apiKey: 'bearer-value', ...overrides };
+}
+
+async function collect(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+  const chunks: StreamChunk[] = [];
+  for await (const item of stream) chunks.push(item);
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// Tiers
+// ---------------------------------------------------------------------------
+
+describe('tiers', () => {
+  it('orders the four tiers cheapest first', () => {
+    expect(TIERS).toStrictEqual(['economy', 'default', 'chat', 'draft']);
+  });
+
+  it('caps output per tier as the PRD specifies', () => {
+    expect(DEFAULT_MAX_TOKENS).toStrictEqual({
+      economy: 512,
+      default: 1024,
+      chat: 2048,
+      draft: 2048,
+    });
+  });
+
+  it('escalates along that order and stops at the top', () => {
+    expect(escalate('economy')).toBe('default');
+    expect(escalate('chat')).toBe('draft');
+    expect(escalate('draft')).toBeNull();
+  });
+
+  it('narrows an untrusted string to a tier', () => {
+    expect(toTier('draft')).toBe('draft');
+    expect(toTier('premium')).toBeNull();
+  });
+
+  it('prefixes route keys so they cannot collide with another adapter', () => {
+    expect(routeKey('economy')).toBe('mail-llm-economy');
+    const routes = buildRoutes({ economy: { baseUrl: GATEWAY, model: MODEL, apiKey: 'k' } });
+    expect([...routes.keys()]).toStrictEqual(['mail-llm-economy']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trusted endpoints
+// ---------------------------------------------------------------------------
+
+describe('trusted_endpoints_only', () => {
+  it('accepts the configured gateway', () => {
+    expect(() => {
+      assertTrusted(GATEWAY, [GATEWAY], 'mail-llm-economy');
+    }).not.toThrow();
+  });
+
+  it('rejects anything else, which is the sovereignty claim', () => {
+    expect(() => {
+      assertTrusted('https://api.openai.com/v1', [GATEWAY], 'mail-llm-economy');
+    }).toThrow(/not in trusted_endpoints_only/);
+  });
+
+  it('is not fooled by a prefix that only looks like the gateway host', () => {
+    expect(() => {
+      assertTrusted('https://chat.lucie.ovh.linagora.com.evil.test/v1', [GATEWAY], 'x');
+    }).toThrow(/not in trusted_endpoints_only/);
+  });
+
+  it('imposes no restriction when the list is empty', () => {
+    expect(() => {
+      assertTrusted('https://anything.test', [], 'x');
+    }).not.toThrow();
+  });
+
+  it('refuses to construct an adapter pointing off the list', () => {
+    expect(
+      () =>
+        new OpenAiEndpointAdapter({
+          routes: new Map([['mail-llm-economy', route({ baseUrl: 'https://api.openai.com/v1' })]]),
+          trustedEndpoints: [GATEWAY],
+        }),
+    ).toThrow(/not in trusted_endpoints_only/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Request serialization
+// ---------------------------------------------------------------------------
+
+describe('serializeRequest', () => {
+  it('asks for a stream with usage on the final chunk', () => {
+    const body = serializeRequest(options(), { model: MODEL });
+    expect(body.stream).toBe(true);
+    expect(body.stream_options).toStrictEqual({ include_usage: true });
+  });
+
+  it('puts the system prompt in the system slot, first', () => {
+    const body = serializeRequest(options({ system: 'Tu es un agent mail.' }), { model: MODEL });
+    expect(body.messages[0]).toStrictEqual({ role: 'system', content: 'Tu es un agent mail.' });
+  });
+
+  it('sends a tool result as its own tool-role message keyed by call id', () => {
+    const body = serializeRequest(
+      options({
+        messages: [
+          message('user', [
+            {
+              type: 'tool-result',
+              toolCallId: 'call-1' as never,
+              content: [{ type: 'text', text: 'ok' }],
+            },
+          ]),
+        ],
+      }),
+      { model: MODEL },
+    );
+    expect(body.messages).toStrictEqual([
+      { role: 'tool', tool_call_id: 'call-1', content: 'ok' },
+    ]);
+  });
+
+  it('keeps tool-call arguments as the raw JSON string the model produced', () => {
+    const body = serializeRequest(
+      options({
+        messages: [
+          message('assistant', [
+            { type: 'tool-call', id: 'c1' as never, name: 'classify', arguments: '{"id":"e1"}' },
+          ]),
+        ],
+      }),
+      { model: MODEL },
+    );
+    expect(body.messages[0]?.tool_calls?.[0]?.function.arguments).toBe('{"id":"e1"}');
+  });
+
+  it('does not replay reasoning back to the endpoint', () => {
+    const body = serializeRequest(
+      options({
+        messages: [
+          message('assistant', [
+            { type: 'reasoning', text: 'hidden' },
+            { type: 'text', text: 'visible' },
+          ]),
+        ],
+      }),
+      { model: MODEL },
+    );
+    expect(body.messages[0]?.content).toBe('visible');
+  });
+
+  it('refuses an option the endpoint cannot honour rather than dropping it', () => {
+    expect(() =>
+      serializeRequest(options({ stop: ['STOP'] }), { model: MODEL, supportsStop: false }),
+    ).toThrow(/stop sequences/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stream protocol
+// ---------------------------------------------------------------------------
+
+describe('the adapter stream contract', () => {
+  function adapterWith(...payloads: readonly string[]): OpenAiEndpointAdapter {
+    return new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-economy', route()]]),
+      fetcher: () =>
+        Promise.resolve(new Response(sseStream(...payloads), { status: 200 })),
+    });
+  }
+
+  it('emits usage before finish, and nothing after finish', async () => {
+    const chunks = await collect(
+      adapterWith(
+        chunk({ content: 'Bon' }),
+        chunk({ content: 'jour' }, 'stop'),
+        JSON.stringify({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 4 } }),
+        '[DONE]',
+      ).stream(options()),
+    );
+
+    const types = chunks.map((c) => c.type);
+    expect(types.at(-1)).toBe('finish');
+    expect(types.at(-2)).toBe('usage');
+    expect(types.filter((t) => t === 'finish')).toHaveLength(1);
+  });
+
+  it('keeps one block index across every delta of the same block', async () => {
+    const chunks = await collect(
+      adapterWith(chunk({ content: 'a' }), chunk({ content: 'b' }, 'stop'), '[DONE]').stream(
+        options(),
+      ),
+    );
+    const deltas = chunks.filter((c) => c.type === 'text-delta');
+
+    expect(deltas.map((d) => d.index)).toStrictEqual([0, 0]);
+    expect(deltas.map((d) => d.text)).toStrictEqual(['a', 'b']);
+  });
+
+  it('assembles the text block on block-end', async () => {
+    const chunks = await collect(
+      adapterWith(chunk({ content: 'Bon' }), chunk({ content: 'jour' }, 'stop'), '[DONE]').stream(
+        options(),
+      ),
+    );
+    const end = chunks.find((c) => c.type === 'block-end');
+
+    expect(end?.block).toStrictEqual({ type: 'text', text: 'Bonjour' });
+  });
+
+  it('streams tool arguments as raw fragments and reassembles them verbatim', async () => {
+    const chunks = await collect(
+      adapterWith(
+        chunk({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'classify', arguments: '{"id"' } }] }),
+        chunk({ tool_calls: [{ index: 0, function: { arguments: ':"e1"}' } }] }, 'tool_calls'),
+        '[DONE]',
+      ).stream(options()),
+    );
+
+    const deltas = chunks.filter((c) => c.type === 'tool-call-delta');
+    expect(deltas.map((d) => d.argumentsDelta)).toStrictEqual(['{"id"', ':"e1"}']);
+
+    const end = chunks.find((c) => c.type === 'block-end');
+    expect(end?.block).toStrictEqual({
+      type: 'tool-call',
+      id: 'c1',
+      name: 'classify',
+      arguments: '{"id":"e1"}',
+    });
+  });
+
+  it('maps finish reasons onto the harness vocabulary', async () => {
+    const stopped = await collect(adapterWith(chunk({}, 'stop'), '[DONE]').stream(options()));
+    const capped = await collect(adapterWith(chunk({}, 'length'), '[DONE]').stream(options()));
+    const calling = await collect(adapterWith(chunk({}, 'tool_calls'), '[DONE]').stream(options()));
+
+    expect(stopped.at(-1)).toStrictEqual({ type: 'finish', reason: { kind: 'stop' } });
+    expect(capped.at(-1)).toStrictEqual({ type: 'finish', reason: { kind: 'max-tokens' } });
+    expect(calling.at(-1)).toStrictEqual({ type: 'finish', reason: { kind: 'tool-calls' } });
+  });
+
+  it('survives an unparsable frame rather than failing the whole call', async () => {
+    const chunks = await collect(
+      adapterWith(chunk({ content: 'a' }), 'not json', chunk({}, 'stop'), '[DONE]').stream(
+        options(),
+      ),
+    );
+    expect(chunks.at(-1)?.type).toBe('finish');
+  });
+
+  it('treats a stream ending without [DONE] as truncation', async () => {
+    await expect(
+      collect(adapterWith(chunk({ content: 'a' })).stream(options())),
+    ).rejects.toThrow(/\[DONE\]/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transport failures
+// ---------------------------------------------------------------------------
+
+describe('failures', () => {
+  it('reports an HTTP error with its status, without echoing the bearer', async () => {
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-economy', route({ apiKey: 'super-secret-bearer' })]]),
+      fetcher: () =>
+        Promise.resolve(new Response('upstream said no for super-secret-bearer', { status: 500 })),
+    });
+
+    const error = await collect(adapter.stream(options())).catch((e: unknown) => e);
+    const text = error instanceof Error ? error.message : String(error);
+
+    expect(text).toContain('500');
+    expect(text).not.toContain('super-secret-bearer');
+  });
+
+  it('classifies a rate limit distinctly from other provider errors', async () => {
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-economy', route()]]),
+      fetcher: () => Promise.resolve(new Response('slow down', { status: 429 })),
+    });
+
+    await expect(collect(adapter.stream(options()))).rejects.toMatchObject({ code: 'RATE_LIMIT' });
+  });
+
+  it('degrades cleanly when the endpoint is unreachable', async () => {
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-economy', route()]]),
+      fetcher: () => Promise.reject(new Error('ECONNREFUSED')),
+    });
+
+    await expect(collect(adapter.stream(options()))).rejects.toMatchObject({ code: 'NETWORK' });
+  });
+
+  it('refuses a provider route it does not serve', async () => {
+    const adapter = new OpenAiEndpointAdapter({ routes: new Map() });
+    await expect(
+      collect(adapter.stream(options({ provider: 'somebody-else' }))),
+    ).rejects.toThrow(/No endpoint configured/);
+  });
+
+  it('sends the bearer and the required attribution header', async () => {
+    const fetcher = vi.fn<Fetcher>(() =>
+      Promise.resolve(new Response(sseStream(chunk({}, 'stop'), '[DONE]'), { status: 200 })),
+    );
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([['mail-llm-economy', route()]]),
+      fetcher,
+    });
+    await collect(adapter.stream(options()));
+
+    const headers = fetcher.mock.calls[0]?.[1].headers as Record<string, string>;
+    expect(headers['authorization']).toBe('Bearer bearer-value');
+    expect(headers['user-agent']).toBeTruthy();
+    expect(fetcher.mock.calls[0]?.[0]).toBe(
+      'https://chat.lucie.ovh.linagora.com/v1/chat/completions',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+describe('resolveRoutes', () => {
+  const config: OpenAiPluginConfig = {
+    baseUrl: GATEWAY,
+    model: MODEL,
+    apiKeyEnv: 'MAIL_SENTINEL_API_KEY',
+    trustedEndpoints: [GATEWAY],
+  };
+
+  it('builds all four tiers from one credential', () => {
+    const routes = resolveRoutes(config, { MAIL_SENTINEL_API_KEY: 'k' });
+    expect([...routes.keys()]).toStrictEqual([
+      'mail-llm-economy',
+      'mail-llm-default',
+      'mail-llm-chat',
+      'mail-llm-draft',
+    ]);
+    expect(routes.get('mail-llm-economy')?.maxTokens).toBe(512);
+    expect(routes.get('mail-llm-draft')?.maxTokens).toBe(2048);
+  });
+
+  it('fails the boot when the credential is not provisioned', () => {
+    expect(() => resolveRoutes(config, {})).toThrow(/MAIL_SENTINEL_API_KEY is not set/);
+  });
+
+  it('fails the boot when a tier points off the trusted list', () => {
+    expect(() =>
+      resolveRoutes(
+        { ...config, tiers: { draft: { baseUrl: 'https://api.openai.com/v1' } } },
+        { MAIL_SENTINEL_API_KEY: 'k' },
+      ),
+    ).toThrow(/not in trusted_endpoints_only/);
+  });
+
+  it('never puts the credential in the configuration object', () => {
+    expect(JSON.stringify(config)).not.toContain('k');
+    expect(config).not.toHaveProperty('apiKey');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Translator, directly
+// ---------------------------------------------------------------------------
+
+describe('StreamTranslator', () => {
+  it('subtracts cached tokens so the counts stay disjoint', () => {
+    const translator = new StreamTranslator();
+    const chunks = [
+      ...translator.accept({
+        choices: [],
+        usage: {
+          prompt_tokens: 100,
+          completion_tokens: 20,
+          total_tokens: 120,
+          prompt_tokens_details: { cached_tokens: 40 },
+        },
+      }),
+      ...translator.flush(),
+    ];
+
+    const usage = chunks.find((c) => c.type === 'usage');
+    expect(usage?.usage).toStrictEqual({
+      inputTokens: 60,
+      outputTokens: 20,
+      totalTokens: 120,
+      cacheReadTokens: 40,
+    });
+  });
+
+  it('gives reasoning its own block, distinct from visible text', () => {
+    const translator = new StreamTranslator();
+    const chunks = [
+      ...translator.accept({ choices: [{ delta: { reasoning_content: 'think' } }] }),
+      ...translator.accept({ choices: [{ delta: { content: 'say' } }] }),
+      ...translator.flush(),
+    ];
+
+    const starts = chunks.filter((c) => c.type === 'block-start');
+    expect(starts.map((s) => s.blockType)).toStrictEqual(['reasoning', 'text']);
+    expect(starts.map((s) => s.index)).toStrictEqual([0, 1]);
+  });
+});

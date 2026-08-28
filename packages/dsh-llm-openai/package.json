@@ -23,12 +23,26 @@
   "engines": {
     "node": ">=22"
   },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-llm": "catalog:"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "catalog:",
+    "eventsource-parser": "catalog:"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-attachment": "catalog:",
+    "@deepseek-ai/dsh-brand": "catalog:",
+    "@deepseek-ai/dsh-invariants": "catalog:",
+    "@deepseek-ai/dsh-llm": "catalog:",
+    "@deepseek-ai/dsh-timeout": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
