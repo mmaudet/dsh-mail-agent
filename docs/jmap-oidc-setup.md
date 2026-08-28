@@ -86,6 +86,33 @@ This is the least work and the least infrastructure. Its only cost is that the
 first token was obtained elsewhere, so the two deployments share a credential
 until the agent is re-authorised on its own.
 
+## Driving it from a terminal
+
+The steps above are wrapped by a small command, so the parts that can be
+automated are, and the part that cannot is explicit:
+
+```bash
+mail-auth begin                  # prints the URL to open
+mail-auth complete '<paste>'     # exchanges what came back
+mail-auth adopt < token.txt      # route C: adopt a token obtained elsewhere
+mail-auth status                 # what is stored, without disclosing it
+```
+
+`begin` holds the PKCE verifier and the anti-CSRF state across the gap while
+you are in a browser; `complete` checks the state before spending the code.
+Paste whatever you have — the whole redirect URL, the query string alone, or
+just the code. If the identity provider refused, the command says so rather
+than hunting for a code that is not there.
+
+`adopt` reads its token from **stdin, never from an argument**: a command line
+is visible in the process table to every user on the host. It also redeems the
+token immediately rather than storing it on trust, so a stale one fails now
+instead of at the first unattended run.
+
+A grant that comes back without a refresh token is rejected: without
+`offline_access` the agent cannot renew, and storing it would only defer the
+failure to the first time nobody is watching.
+
 ## After the first token
 
 The agent refreshes on its own, a minute before expiry. Tokens are written back

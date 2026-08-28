@@ -15,6 +15,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./auth-cli": {
+      "types": "./dist/auth/cli.d.ts",
+      "default": "./dist/auth/cli.js"
     }
   },
   "files": [

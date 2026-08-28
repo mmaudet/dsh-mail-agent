@@ -93,6 +93,17 @@ export {
 } from './auth/xoauth2-imap.js';
 
 export {
+  JmapBootstrap,
+  createHttpClient,
+  parseCallback,
+  type AuthorizationStatus,
+  type BootstrapOptions,
+  type PendingAuthorization,
+} from './auth/bootstrap.js';
+
+export { EnvFileStore } from './auth/env-store.js';
+
+export {
   assertNoInlineSecret,
   readAppPassword,
   type AppPasswordConfig,
