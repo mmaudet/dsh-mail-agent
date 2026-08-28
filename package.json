@@ -22,11 +22,14 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
+    "lint": "eslint --config tooling/lint/eslint.config.js .",
+    "lint:fix": "eslint --config tooling/lint/eslint.config.js . --fix",
     "typecheck": "tsc -b --noEmit",
     "test": "pnpm -r --stream test"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "eslint": "^10.9.1",
     "typescript": "catalog:"
   }
 }

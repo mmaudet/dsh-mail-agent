@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
+  - 'tooling/*'
 
 # Single source of truth for versions shared across every bundle.
 # Referenced from each package.json as "catalog:".
