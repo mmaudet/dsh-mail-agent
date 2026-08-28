@@ -269,6 +269,49 @@ because none had been authored yet. Checking that a path is empty is not the
 same as checking that it is wrong, and the difference took a second pass through
 the source to see.
 
+### The runaway, and the missing circuit breaker
+
+The third session is the one to put in the article, because nothing about it is
+subtle. Creator mode, **Full access**, one turn:
+
+```
+1 turns · 30 steps | LLM 40.6s · Tool call 0.7s
+Cache hit 94% | Input 1.6M tok · Output 2.1K tok
+```
+
+**1.6 million input tokens against 2.1 thousand out.** The transcript shows why:
+the same paragraph, verbatim, four times over —
+
+> I need to actually invoke the Remote method to get the roster. I'll use the
+> correct Remote method call via the Service provider's `remoteExportList`
+> method. I'll call the Remote method through the Service provider's Remote
+> annotation by using the correct Remote method selector.
+
+— interleaved with two failures and two identical `cordis_inspect_query · host`
+calls:
+
+```
+Error: Cordis inspect provider "Service" has no method "remoteExportList"
+Error: Host Cordis inspect provider "agentPresets" is not registered
+```
+
+The model restated its intention word for word, retried the same call, failed
+the same way, and restated it again. Nothing in the harness noticed. There is
+no step budget that trips, no repetition detector, no escalation to the
+operator. The run stopped because a human was watching and cancelled it.
+
+The money is not the story — a 94% cache hit rate puts this around four cents.
+The story is that **an agent with Full access to the machine it runs on can
+spin indefinitely on a malformed goal, and the only backstop is someone looking
+at the screen.** For a system whose selling point is that the loop is
+replaceable by configuration, "the loop had no budget" is a pointed omission.
+
+It also compounds the earlier finding. `agentPresets` is not registered as a
+host inspect provider, so the roster the `cordis` preset's own persona promises
+— *"the roster reports each preset's real path"* — is not reachable through the
+tool the same preset ships. The agent was chasing something the documentation
+told it existed, through an interface that does not expose it.
+
 ### The observability is what caught the model
 
 Worth a screenshot in the article, because the detail that mattered was not in
