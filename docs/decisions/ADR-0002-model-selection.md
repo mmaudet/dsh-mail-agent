@@ -1,6 +1,6 @@
-# ADR-0002 — One model for all four tiers, and no reasoning model
+# ADR-0002 — Model selection per tier, and no reasoning model
 
-- **Status:** Accepted
+- **Status:** Accepted, amended 2026-08-28 (see "Amendment")
 - **Date:** 2026-08-28
 - **Source:** [PRD §3.6](../PRD.md), measured against the live gateway
 
@@ -133,3 +133,68 @@ tool call as currently served, so it cannot drive the loop.
 **A non-sovereign reasoning model for the draft and summary tiers.** Rejected on
 ADR-0001's perimeter: those tiers see full message bodies, which is precisely
 the content that must not leave.
+
+
+---
+
+## Amendment, 2026-08-28 — the gateway's context ceiling
+
+The decision above assumed the gateway could serve every tier. Measurement
+says otherwise:
+
+```
+max_tokens=32000 cannot be greater than max_model_len=max_total_tokens=16384
+```
+
+**16384 tokens total, prompt and completion together.** The model has a 128k
+native context; the gateway does not expose it. That ceiling is fine for
+classifying one message and impossible for the rest: a periodic summary spans a
+week of threads, and a reply draft carries a whole conversation plus the
+owner's style profile.
+
+Raising it needs a change on the gateway that is not available on the timescale
+this work runs at.
+
+### What changed
+
+The tiers now span two endpoints:
+
+| Tier | Endpoint | Model | Context |
+|---|---|---|---|
+| `economy` | LINAGORA gateway | `Mistral-Small-3.2-24B-Instruct-2506-FP8` | 16 384 |
+| `default`, `chat`, `draft` | OpenRouter | `mistralai/mistral-small-2603` | 262 144 |
+
+`openrouter.ai` was added to `trusted_endpoints_only`, deliberately. The
+allow-list exists so that widening the perimeter is a visible line in a diff
+rather than a base URL nobody rereads.
+
+Tool calling was verified on the new route against the real `classify_email`
+schema before adopting it: `{"category":"newsletter-tech","confidence":0.98}`.
+
+### What this costs, stated plainly
+
+This breaks the perimeter [ADR-0001](ADR-0001-topology.md) describes. Mail
+content reaching `default`, `chat` or `draft` now transits OpenRouter, a US
+company, and those are the tiers that see whole threads and the owner's writing
+style — the most sensitive content in the system.
+
+Two things reduce, without removing, the exposure.
+
+**The highest-volume tier stayed home.** Classification is what runs on every
+message; summaries and drafts are occasional. Splitting at the context boundary
+rather than switching wholesale keeps the bulk of mail content inside the
+European perimeter, and was the reason for splitting rather than moving
+everything.
+
+**The inference itself ran in the EU.** OpenRouter reported `provider: Mistral`
+for the verification call, so the model ran on Mistral's own infrastructure,
+a European company. OpenRouter sees the traffic in transit; it is not where the
+model runs. This is a routing exposure, not a relocation of the workload — a
+weaker claim than ADR-0001's, and an honest one.
+
+### How this is undone
+
+Raise `max_model_len` on the LINAGORA gateway, then point the three tiers back
+and remove `openrouter.ai` from the allow-list. No code changes: the tier
+structure exists precisely so the endpoint is configuration. That remains the
+target state, and this amendment is a measured detour, not a new position.

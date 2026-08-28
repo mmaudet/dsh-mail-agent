@@ -1,13 +1,20 @@
 # The dsh-llm-openai bundle patch: one adapter instance serving the four call
 # tiers of PRD section 3.6.
 #
-# One row rather than four. The PRD sketches a row per tier, but the tiers are
-# provider routes over a single adapter instance: that resolves the credential
-# once, keeps one place for the endpoint allow-list, and still yields the four
-# routes `mail-llm-economy`, `-default`, `-chat` and `-draft`.
+# The tiers are split across two endpoints on purpose (see ADR-0002).
 #
-# No credential appears here. `apiKeyEnv` names an environment variable that
-# the harness resolves at boot; the value lives in $DSH_HOME/.env.
+# `economy` classifies one message at a time — a couple of thousand tokens —
+# so the sovereign LINAGORA gateway suits it, and classification is by far the
+# highest-volume tier. The gateway caps a request at 16384 tokens TOTAL,
+# prompt and completion together, which the remaining tiers cannot live
+# within: a summary spans a week of threads and a draft carries a whole
+# conversation.
+#
+# The effect is that the bulk of mail content stays inside the European
+# perimeter, and only the rarer long-context work leaves it.
+#
+# No credential appears here. Each `apiKeyEnv` names an environment variable
+# the harness resolves at boot; the values live in $DSH_HOME/.env.
 
 - insert:
     - id: mail.llm.openai
@@ -16,7 +23,31 @@
         baseUrl: https://chat.lucie.ovh.linagora.com/v1/
         model: Mistral-Small-3.2-24B-Instruct-2506-FP8
         apiKeyEnv: MAIL_SENTINEL_API_KEY
-        # Enforced at boot, not per request: a typo here should fail the
-        # profile rather than quietly send mail content elsewhere.
+
+        tiers:
+          economy:
+            # Sovereign, and 16k total is ample for one message.
+            contextWindow: 16384
+
+          default:
+            baseUrl: https://openrouter.ai/api/v1
+            model: mistralai/mistral-small-2603
+            apiKeyEnv: OPENROUTER_API_KEY
+            contextWindow: 262144
+          chat:
+            baseUrl: https://openrouter.ai/api/v1
+            model: mistralai/mistral-small-2603
+            apiKeyEnv: OPENROUTER_API_KEY
+            contextWindow: 262144
+          draft:
+            baseUrl: https://openrouter.ai/api/v1
+            model: mistralai/mistral-small-2603
+            apiKeyEnv: OPENROUTER_API_KEY
+            contextWindow: 262144
+
+        # Widened deliberately: openrouter.ai is outside the perimeter
+        # ADR-0001 describes, and this list is where that becomes visible in a
+        # diff rather than buried in a base URL.
         trustedEndpoints:
           - https://chat.lucie.ovh.linagora.com/v1/
+          - https://openrouter.ai/api/v1

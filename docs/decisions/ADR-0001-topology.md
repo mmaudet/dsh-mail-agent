@@ -82,6 +82,15 @@ Costs, accepted knowingly:
 - **No "runs entirely on my laptop" demo.** Apple Silicon local inference is deferred to an
   optional V2 (PRD §9.2).
 
+## Superseded in part
+
+The sovereignty claim above held while every tier fit inside the gateway. It no
+longer describes the deployment: the gateway caps a request at 16 384 tokens
+total, so the summary, chat and draft tiers now run on OpenRouter.
+[ADR-0002](ADR-0002-model-selection.md) records what moved, what stayed, and
+what it costs. The topology — the agent on Athena, no local models, nothing
+listening publicly — is unchanged.
+
 ## Alternatives considered
 
 **Inference local to the MacBook** (MLX or `llama.cpp`), with DSH on the laptop. Rejected: the
