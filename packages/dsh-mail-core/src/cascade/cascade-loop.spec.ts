@@ -546,3 +546,42 @@ describe('the prefilter reads the filter the server actually runs', () => {
     expect(trace.decidedBy).not.toBe('spam-prefilter');
   });
 });
+
+describe('bulk mail with no sub-category signal is not guessed at', () => {
+  it('declines rather than defaulting a mailing list to a tech newsletter', async () => {
+    // Measured on the target inbox: 40 of 42 bulk messages matched no
+    // sub-category signal, and the default was filing a mailing list, a
+    // support case and a traffic-fine notice as a technology newsletter — at
+    // confidence 1, which node 7 cannot degrade and the model never reviews.
+    const message = msg({
+      id: 'r20',
+      from: [{ name: 'License Review', email: 'license-review@lists.example' }],
+      subject: 'Re: [License-review] For Approval: OpenMDW License Agreement',
+      listUnsubscribe: ['https://lists.example/unsub'],
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).toBe('llm');
+    expect(trace.category).toBe('standard');
+  });
+
+  it('still settles bulk that says what it is', async () => {
+    for (const [subject, expected] of [
+      ['Weekly digest #42', 'newsletter-tech'],
+      ['-40% ce week-end', 'newsletter-promo'],
+      ['Alerte sur votre dépôt', 'newsletter-notification'],
+    ] as const) {
+      const message = msg({
+        id: `r21-${expected}`,
+        from: [{ name: 'Bulk', email: 'hello@bulk.example' }],
+        subject,
+        listUnsubscribe: ['https://bulk.example/u'],
+      });
+
+      const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+      expect(trace.decidedBy).toBe('static-rule');
+      expect(trace.category).toBe(expected);
+    }
+  });
+});

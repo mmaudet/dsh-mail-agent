@@ -315,8 +315,18 @@ function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict
     return { category: 'transactional', confidence: 1, rationale: 'transactional message (code or receipt); never digested' };
   }
   if (message.listUnsubscribe.length > 0) {
+    // `List-Unsubscribe` proves the message is bulk. It says nothing about
+    // which kind, and the vocabulary has no generic bulk category — so when no
+    // sub-category signal matches, this node declines rather than guessing.
+    //
+    // Measured on the target inbox: 40 of 42 bulk messages matched nothing,
+    // and the default was filing a mailing list, an OVH support case and a
+    // traffic-fine notice as a technology newsletter. At confidence 1, which
+    // node 7 cannot degrade and the model never reviews.
     const category = newsletterSubcategory(message);
-    return { category, confidence: 1, rationale: NEWSLETTER_RATIONALE[category] };
+    if (category !== null) {
+      return { category, confidence: 1, rationale: NEWSLETTER_RATIONALE[category] };
+    }
   }
   return null;
 }
@@ -497,18 +507,32 @@ function hasAnyMarker(subject: string, markers: readonly string[]): boolean {
 }
 
 /**
- * Which newsletter sub-category a `List-Unsubscribe` mail belongs to.
+ * Which newsletter sub-category a `List-Unsubscribe` mail belongs to, or
+ * `null` when nothing says.
  *
  * The local part of the sender is the strongest signal (a `promos@` or
- * `notifications@` address); the subject markers are a fallback for senders
- * that use a plain local part. Whatever has an unsubscribe link and no
- * stronger signal is filed as the technology digest.
+ * `notifications@` address); the subject markers cover senders with a plain
+ * local part. There is deliberately no default: which kind of bulk a message
+ * is, is a judgement about its content, and that is what node 6 exists for.
  */
-function newsletterSubcategory(message: MailMessage): 'newsletter-tech' | 'newsletter-promo' | 'newsletter-notification' {
+function newsletterSubcategory(
+  message: MailMessage,
+): 'newsletter-tech' | 'newsletter-promo' | 'newsletter-notification' | null {
   const from = firstFrom(message);
   const local = from !== null ? localPartOf(from.email.toLowerCase()) : '';
   const subject = message.subject.toLowerCase();
   if (local.includes('promo') || hasAnyMarker(subject, PROMO_MARKERS)) return 'newsletter-promo';
   if (local.includes('notif') || hasAnyMarker(subject, MACHINE_MARKERS)) return 'newsletter-notification';
-  return 'newsletter-tech';
+  if (local.includes('news') || hasAnyMarker(subject, TECH_MARKERS)) return 'newsletter-tech';
+  return null;
 }
+
+/** Signals that a bulk message really is a technology digest. */
+const TECH_MARKERS: readonly string[] = [
+  'digest',
+  'weekly',
+  'hebdo',
+  'newsletter',
+  'release',
+  'changelog',
+];
