@@ -247,9 +247,23 @@ async #resolveApiUrl(): Promise<string> {
 
 Fetched once, cached, and the calls go to `apiUrl`. Correct, and nobody told it.
 
-**A 27B open-weights model got a protocol detail right that a 550B model got
-wrong, on the same brief.** Whatever this benchmark measures, it is not
-parameter count.
+DeepSeek has the same bug. Its transport POSTs to `sessionUrl` directly, with
+no discovery step, inside the run that scored 6 / 6.
+
+So on the one detail in this task that requires reading a specification rather
+than imitating a neighbouring file:
+
+| Model | JMAP discovery | Score it got |
+|---|---|---|
+| `mistral-small-2603` (24B) | wrong | 4 / 7, round 2 |
+| `nemotron-3-ultra` (550B) | wrong | **7 / 7** |
+| `deepseek-v4-pro` (frontier) | wrong | **6 / 6** |
+| `qwen3.8-27b` (27B open) | **right** | **6 / 6** |
+
+**Three models got it wrong, two of them inside a full pass. The one that got it
+right is the smallest.** Whatever this benchmark measures, it is not parameter
+count — and no acceptance script in this repository would have told the
+difference, because none of them opens a JMAP connection.
 
 Two things it does not do that the reference does: it drops no cached `apiUrl`
 on a 404 or 410, and it reads `process.env` directly rather than taking an
