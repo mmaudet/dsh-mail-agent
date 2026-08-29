@@ -37,7 +37,7 @@ naming a module with no `apply`.
 | 4 | `nvidia/nemotron-3-ultra-550b-a55b` | 1 | — | **VOID** — output cap of 1024 cut the write |
 | 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, pinned upstream, cap 32768 | 3 / 7 | FAIL — reported success against a different profile |
 | 6 | `nvidia/nemotron-3-ultra-550b-a55b` | 2, with defects listed | **7 / 7** | **PASS**, unaided |
-| 7 | `deepseek/deepseek-v4-pro` | 1 | 4 / 6 | FAIL — never mounted, **brief misdirected it** |
+| 7 | `deepseek/deepseek-v4-pro` | 1 | — | **VOID** — the brief pointed it at the finished work |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -143,6 +143,28 @@ opens a JMAP connection, which the brief said was out of scope. A green
 acceptance run means the seven things were satisfied — no more. Both models
 produced the same protocol error independently, and only a human review caught
 it either time.
+
+## The brief leaked the answer
+
+`ab-deepseek`'s `plugin.ts` is byte-identical to the reviewed implementation in
+the working repository, down to the comments, differing only by a trailing
+newline. It did not author it. It copied it — from `~/work/dsh-mail-agent`,
+because the brief told it to build there.
+
+That is not the model cutting a corner. It was pointed at a repository where
+the task was already complete and told to work with it. **Run 7 measures
+nothing about DeepSeek.**
+
+Two things make this worse than an ordinary mistake. The finished plugin had
+been in that repository since 07:44, so the leak was open for every run after
+it. And the leak is invisible in the outcome: a copied solution passes every
+structural check, and would have scored well had the mounting step not failed
+independently.
+
+Nemotron did not copy — its `plugin.ts` diverges from the reference by 166
+lines and carries a protocol bug the reference does not have. Its runs stand.
+Mistral's predate the reference existing. So the damage is confined to run 7,
+but only by luck: nothing in the protocol prevented it.
 
 ## A fourth confound, and it invalidates part of the table
 
