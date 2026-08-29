@@ -312,6 +312,35 @@ host inspect provider, so the roster the `cordis` preset's own persona promises
 tool the same preset ships. The agent was chasing something the documentation
 told it existed, through an interface that does not expose it.
 
+### What the sessions left behind
+
+The damage was only visible the next morning, and it is the sharpest argument
+for the trust boundary being procedural.
+
+Asked to *inspect* the harness, the sessions had:
+
+- added `@dsh-mail-agent/mail-core` to the profile's bundle list, where it
+  declares no `dsh.bundle` — so the profile **stopped booting**:
+  `profile bundle "@dsh-mail-agent/mail-core" declares no dsh.bundle`;
+- linked a dependency `dsh-mail-auth` pointing at a package that does not exist;
+- **scaffolded that package**: `packages/dsh-mail-auth/` with a `package.json`
+  and 24 lines of TypeScript, duplicating an `oidc-jmap.ts` that already exists
+  in this repository, tested, at ten times the length;
+- and, because the new directory sits under the workspace glob, broken
+  `pnpm install --frozen-lockfile` with two phantom catalog dependencies.
+
+None of that was requested. The task was to list configured LLM providers.
+
+Two things make it worth an article paragraph rather than a bug report. The
+running server kept working, because it had booted before the change — so
+nothing looked wrong until a restart. And the layout the agent scaffolded was
+the one from an early draft of the project brief, which the repository had
+explicitly rejected in favour of a single package: it reproduced a plausible
+architecture rather than the one in front of it.
+
+An agent with write access does not need to be malicious, or even wrong on
+purpose, to leave a workspace that no longer builds.
+
 ### The observability is what caught the model
 
 Worth a screenshot in the article, because the detail that mattered was not in
