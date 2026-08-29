@@ -493,3 +493,56 @@ describe('authentication is read as servers actually write it', () => {
     expect(trace.decidedBy).not.toBe('brand-spoofing');
   });
 });
+
+describe('the prefilter reads the filter the server actually runs', () => {
+  it('reads James rspamd status, and the threshold it states', async () => {
+    // The account this project targets stamps this, and nothing matching
+    // `x-spam-score` at all. The PRD assumes the other convention.
+    const message = msg({
+      id: 'r16',
+      subject: 'Vous avez gagné',
+      spamHeaders: {
+        'org.apache.james.rspamd.flag': 'YES',
+        'org.apache.james.rspamd.status': 'Yes, actions=reject score=22.4 requiredScore=15.0',
+      },
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('spam-prefilter');
+    expect(trace.category).toBe('spam-certain');
+  });
+
+  it('honours a threshold above the documented default', async () => {
+    // 12 is junk under rspamd's documented 10 and clean under this server's
+    // stated 15. Hardcoding the default would junk it.
+    const message = msg({
+      id: 'r17',
+      spamHeaders: {
+        'org.apache.james.rspamd.status': 'No, actions=no action score=12.0 requiredScore=15.0',
+      },
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('spam-prefilter');
+  });
+
+  it('falls back to the documented default when the filter states none', async () => {
+    const message = msg({ id: 'r18', spamHeaders: { 'x-spam-score': '11.2' } });
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('spam-prefilter');
+  });
+
+  it('lets a negative score through, which is what most mail carries', async () => {
+    const message = msg({
+      id: 'r19',
+      spamHeaders: {
+        'org.apache.james.rspamd.status': 'No, actions=no action score=-1.307155 requiredScore=15.0',
+      },
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('spam-prefilter');
+  });
+});

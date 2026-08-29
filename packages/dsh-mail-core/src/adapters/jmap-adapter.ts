@@ -574,7 +574,13 @@ function spamHeaders(value: unknown): Readonly<Record<string, string>> {
     const name = asString(readProp(entry, 'name'))?.toLowerCase();
     const text = asString(readProp(entry, 'value'));
     if (name === undefined || text === null) continue;
-    if (/^x-spam-/.test(name) || name === 'authentication-results') {
+    // `x-spam-*` is the convention the PRD assumes, and the account this
+    // project targets uses none of it: James stamps
+    // `org.apache.james.rspamd.status` instead. Both are kept, and
+    // `authentication-results` with them — but not `ARC-` or `X-MS-Exchange-`
+    // prefixed variants, which assert something about a previous hop rather
+    // than about this delivery.
+    if (/^x-spam-/.test(name) || /\.rspamd\./.test(name) || name === 'authentication-results') {
       // A header may repeat; the last one wins, which is what a reader of the
       // message sees too.
       headers[name] = text.trim();

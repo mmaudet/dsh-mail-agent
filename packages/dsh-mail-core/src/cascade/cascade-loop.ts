@@ -39,9 +39,12 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * A spam-filter score at or past this is settled as junk, on the prefilter
- * alone. rspamd's default junk threshold is 10; the corpus leans on it with a
+ * Fallback threshold, used only when the filter does not state its own.
+ *
+ * rspamd's documented default is 10, and the corpus leans on it with a
  * clear-cut case at 14.8 and a grey-zone case at 5.2 that must pass through.
+ * A deployment that reports `requiredScore` overrides this — the account this
+ * project targets answers 15.
  */
 const JUNK_SCORE = 10;
 
@@ -255,8 +258,8 @@ function threadContinuity(context: CascadeContext): NodeVerdict | null {
 
 /** Node 2: junk settles on the spam-filter score; clean and grey pass through. */
 function spamPrefilter(message: MailMessage): NodeVerdict | null {
-  const score = readSpamScore(message.spamHeaders);
-  if (score !== null && score >= JUNK_SCORE) {
+  const verdict = readSpamVerdict(message.spamHeaders);
+  if (verdict !== null && verdict.score >= verdict.threshold) {
     return {
       category: 'spam-certain',
       confidence: 1,
@@ -404,12 +407,34 @@ function normalizeWords(text: string): string[] {
     .filter((w) => w.length > 0);
 }
 
-/** The numeric spam-filter score, or `null` when absent or unparseable. */
-function readSpamScore(headers: Readonly<Record<string, string>>): number | null {
+/**
+ * What the spam filter concluded, and the threshold it judged against.
+ *
+ * Two shapes, because the PRD assumes one the target account does not use.
+ * James stamps `org.apache.james.rspamd.status`:
+ *
+ *     No, actions=no action score=-1.307155 requiredScore=15.0
+ *
+ * `requiredScore` is the filter's own threshold, and reading it beats
+ * hardcoding one: this deployment answers 15 where rspamd's documented default
+ * is 10, so a constant would have called clean mail junk for five points.
+ */
+function readSpamVerdict(
+  headers: Readonly<Record<string, string>>,
+): { score: number; threshold: number } | null {
+  const status = headers['org.apache.james.rspamd.status'];
+  if (status !== undefined) {
+    const score = Number.parseFloat(/score=(-?[\d.]+)/.exec(status)?.[1] ?? '');
+    const required = Number.parseFloat(/requiredScore=([\d.]+)/.exec(status)?.[1] ?? '');
+    if (Number.isFinite(score)) {
+      return { score, threshold: Number.isFinite(required) ? required : JUNK_SCORE };
+    }
+  }
+
   const raw = headers['x-spam-score'];
   if (raw === undefined) return null;
   const score = Number.parseFloat(raw);
-  return Number.isFinite(score) ? score : null;
+  return Number.isFinite(score) ? { score, threshold: JUNK_SCORE } : null;
 }
 
 /** True when any of DMARC, DKIM or SPF reports a hard failure. */
