@@ -116,7 +116,9 @@ step "6. the profile BOOTS"
 # closed loads the whole plugin tree and exits 0. A tree that fails to load
 # exits non-zero either way, which is the thing being tested.
 log=$(mktemp)
-if dsh --profile "$PROFILE" --port 0 --help >/dev/null 2>&1; then
+# --help short-circuits option validation, so probing with "--port 0 --help"
+# succeeds everywhere and is not a test. Ask what the profile's help offers.
+if dsh --profile "$PROFILE" --help 2>&1 | grep -q -- '--port'; then
   ( cd /tmp && exec dsh --profile "$PROFILE" --port 0 >"$log" 2>&1 ) &
   boot_pid=$!
   for _ in $(seq 1 25); do
