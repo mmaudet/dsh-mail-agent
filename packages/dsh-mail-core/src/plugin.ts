@@ -10,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis';
 
 import { JmapAdapter, type JmapTransport } from './adapters/jmap-adapter.js';
 import { MailboxService } from './mail-service.js';
-import { apply as registerMailPing } from './tools/mail-ping.js';
+import * as mailPing from './tools/mail-ping.js';
 
 /**
  * Configuration carries environment-variable *names*, never values: the
@@ -142,5 +142,9 @@ export function apply(ctx: Context, config: MailCoreConfig): void {
   });
 
   ctx.plugin(MailboxService, adapter);
-  registerMailPing(ctx);
+  // Mounted, not called: the tool declares `inject: ['tools', 'mailbox']`, and
+  // a plain call runs it against this plugin's context, which injects neither.
+  // The handler then fails at first use with `cannot get property "mailbox"
+  // without inject` — at call time, long after a clean boot.
+  ctx.plugin(mailPing);
 }
