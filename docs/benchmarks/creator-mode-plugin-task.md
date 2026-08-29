@@ -36,6 +36,7 @@ naming a module with no `apply`.
 | 3 | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1 | — | **VOID** — stream truncated, see below |
 | 4 | `nvidia/nemotron-3-ultra-550b-a55b` | 1 | — | **VOID** — output cap of 1024 cut the write |
 | 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, pinned upstream, cap 32768 | 3 / 7 | FAIL — reported success against a different profile |
+| 6 | `nvidia/nemotron-3-ultra-550b-a55b` | 2, with defects listed | **7 / 7** | **PASS**, unaided |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -104,6 +105,43 @@ its own writes, which is circular. Nemotron ran real commands that would have
 been correct in another directory: it substituted the familiar profile name for
 the one it was working in. The output was truthful about a system nobody had
 asked about.
+
+## Run 6: the first unaided pass
+
+Nemotron cleared all seven checks, mounted the bundle itself, and ran the
+script before claiming anything. Its report matched the result.
+
+It also found a defect nobody had listed. Boot failed with a service already
+registered; it traced that to a redundant `ctx.provide('mailbox', …)` beside
+the `super(ctx, 'mailbox')` the service constructor already performs, and
+removed it. That is debugging from a symptom, not pattern completion.
+
+| | Mistral round 2 | Nemotron round 2 |
+|---|---|---|
+| Checks passed | 4 / 7 | **7 / 7** |
+| Mounted the bundle | no — the reviewer did it | yes |
+| Ran the acceptance script | no | yes |
+| Claim matched result | no | yes |
+
+On this task, the larger model finished and the smaller one did not.
+
+### The asymmetry in how they were treated
+
+Mistral's correction brief listed **five** defects, from a hand review of its
+code. Nemotron's listed **three**, derived from the script output. That
+difference decided part of the result, and it shows in what each still ships.
+
+Both models wrote a transport that POSTs method calls straight to the JMAP
+session resource. RFC 8620 §2 makes that a discovery document: it is fetched,
+`apiUrl` is read from it, and calls go there. Mistral's round two fixed it
+because the brief said so. **Nemotron's code still has it, because nobody told
+it, and seven checks out of seven passed anyway.**
+
+That is the finding to keep. The script tests structure and boot; it never
+opens a JMAP connection, which the brief said was out of scope. A green
+acceptance run means the seven things were satisfied — no more. Both models
+produced the same protocol error independently, and only a human review caught
+it either time.
 
 ## Three confounds, all mine
 
