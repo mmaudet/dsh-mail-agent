@@ -91,15 +91,22 @@ fi
 # The one that actually matters. Composing is not booting: a row naming a
 # module without apply() passes every check above and fails here.
 step "7. the profile BOOTS"
+# --port 0 lets the OS pick a free port, so this never collides with a running
+# session — including the one an agent may be running this script from.
 log=$(mktemp)
-( cd /tmp && timeout 45 dsh --profile "$PROFILE" >"$log" 2>&1 ) &
+( cd /tmp && exec dsh --profile "$PROFILE" --port 0 >"$log" 2>&1 ) &
 boot_pid=$!
-for _ in $(seq 1 22); do sleep 2; grep -q "dsh web:" "$log" 2>/dev/null && break; done
+for _ in $(seq 1 25); do
+  sleep 2
+  grep -q "dsh web:" "$log" 2>/dev/null && break
+  kill -0 "$boot_pid" 2>/dev/null || break
+done
 if grep -q "dsh web:" "$log" 2>/dev/null; then ok; else
   ko "$(grep -m1 -E 'Error:' "$log" 2>/dev/null || echo 'did not reach "dsh web:"')"
 fi
-pkill -f "dsh --profile $PROFILE" 2>/dev/null
-wait $boot_pid 2>/dev/null
+# Kill only the instance this script started, never one already running.
+kill "$boot_pid" 2>/dev/null
+wait "$boot_pid" 2>/dev/null
 rm -f "$log"
 
 # ---------------------------------------------------------------------------
