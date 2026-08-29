@@ -688,6 +688,88 @@ badly too, and I was the one holding it.** A green suite is a statement about
 the checks that ran. The only thing that speaks about the system is the system,
 doing the thing, once, for real.
 
+## §9bis — Trois serveurs, trois capacités annoncées et absentes
+
+The integration suite was written to prove the adapters against real servers.
+It found three things in one afternoon, and they are the same thing three times.
+
+### The pattern
+
+| Claimed | Reality | Found by |
+|---|---|---|
+| `LIST-EXTENDED` advertised | `RETURN (SUBSCRIBED)` → `NO LIST processing failed.` | opening any mailbox failed |
+| `urn:ietf:params:jmap:mail` advertised | `Email/queryChanges` → `unknownMethod` | the delta feed never ran |
+| `Email/query` takes a `limit` | `limit: 0` → `invalidArguments` | a fake accepted it happily |
+
+Every one is a capability a client is *supposed* to feature-detect on. Every one
+breaks the client that detects correctly and spares the client that ignores the
+advertisement. That inversion is the finding worth publishing: **the careful
+implementation is the one that fails.**
+
+None was visible to a unit test, because a fake transport answers whatever it is
+handed. Two were invisible to a container as well — `LIST-EXTENDED` works on
+upstream `apache/james:memory-latest` and fails on the deployment; the third was
+the reverse, failing on both.
+
+### The one that cost the most
+
+`Email/queryChanges` is not a detail: PRD section 4.1 specifies the poll-delta
+path on top of it, and section 3.2 turns that into the contract's
+`queryChanges(folder, sinceCursor)`. The adapter implemented the specification
+faithfully, and **the change feed did not work against the server the project
+targets** — with a full unit suite green throughout.
+
+Rebuilding it on `Email/changes` turned out to be an improvement. The adapter had
+been carrying this caveat:
+
+> `Email/queryChanges` tracks membership of a filtered query [...] It cannot
+> report an in-place change such as a flag edit.
+
+`Email/changes` reports `updated`, so keyword edits now arrive through the same
+feed instead of depending on the push channel. The specification was not just
+unavailable — it was the weaker design.
+
+## §9ter — What a contract written before the implementation is worth
+
+Phase 2's cascade was built in Creator mode by a 27B open-weights model against
+a contract and a 21-test judge written first, by someone else. Two rounds.
+
+### It works, and it is not enough
+
+Round one: 193 tests green, judge untouched, no coupling to the fixtures. A
+human review then found three defects, all sharing a shape — **each was a
+narrower rule that satisfied the visible case**. A brand allowlist where the
+spec asked for a comparison. A substring match on an address where the same file
+used equality ten lines away. A corporate domain settling every internal message
+as `standard` at confidence 1, which node 7 could not degrade and the model
+never saw.
+
+Round two, with those four turned into failing tests: all four fixed properly,
+199 green, and the fix for the first now accused **five of eight legitimate
+senders** whose display name is generic. `Support` at `zendesk.example` fails a
+name-versus-domain comparison exactly as `PayPal` at `paypa1-secure.example`
+does.
+
+Narrow, then wide. Both passed every test that existed when they were written.
+
+### The asymmetry nothing expressed
+
+A too-narrow rule misses spam. A too-wide one destroys legitimate mail. Those
+are not equally cheap mistakes, and no test suite said so — which is why the
+correction was to bound the node's *authority* rather than sharpen its
+heuristic: it may now answer `spam-probable`, never `spam-certain`, so a mistake
+lands somewhere the weekly digest surfaces it.
+
+**That is the general move.** When a rule cannot be made reliable, take away its
+power to be irreversible.
+
+### What the reviewer got wrong too
+
+The round-two brief said what the corporate rule must *not* do and nothing about
+what it should. The model removed the branch entirely — a literal and reasonable
+reading — and left a field in the contract that nothing read. A correction brief
+that only forbids produces a gap, not a fix.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
