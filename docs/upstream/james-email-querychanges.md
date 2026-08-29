@@ -51,23 +51,46 @@ cursor whose meaning the `MailboxCursor` union does not currently carry.
 `hasMoreChanges` also makes the feed explicitly paginated, which
 `queryChanges(folder, cursor): Promise<MailChange[]>` has nowhere to express.
 
-## Open, and deliberately
+## Settled: the adapter follows `Email/changes`
 
-Nothing is patched here. The choice is between:
+`JmapAdapter.queryChanges` is rebuilt on it, and the integration suite now
+proves the round trip against a live server instead of skipping it.
 
-- **rebuild the JMAP delta on `Email/changes`**, with an account-level cursor
-  and a mailbox lookup — correct against the real server, and it changes what a
-  cursor means;
-- **keep `queryChanges` and let the JMAP delta stay unavailable**, relying on
-  push (`PushSubscription`, which James does advertise) with IMAP as the polling
-  adapter — smaller, and it gives up Voie 2 on JMAP;
-- **ask the Twake Mail team for `Email/queryChanges`**, which is the same
-  conversation as the `LIST-EXTENDED` report and has the same shape: a
-  capability advertised through `urn:ietf:params:jmap:mail` whose methods are
-  not all there.
+It turns out to be an improvement rather than a workaround. The adapter used to
+carry this caveat:
 
-The first is the honest engineering answer, the third is the one that helps
-everyone else too, and they are not exclusive.
+> `Email/queryChanges` tracks membership of a filtered query, so it reports a
+> message entering or leaving the folder. It cannot report an in-place change
+> such as a flag edit.
+
+`Email/changes` reports `updated` as well, so keyword edits arrive through the
+same feed and no longer depend on the push channel to be noticed.
+
+What it costs: the feed is account-wide, so one `Email/get` on the changed ids
+reads their `mailboxIds` and routes them to folders — skipped entirely when
+nothing changed. `maxChanges` is bounded at 256, because a poll that has fallen
+a week behind should return control rather than drain a mailbox; the cursor each
+change carries points just past it, so the next call resumes exactly there.
+
+One limitation, deliberately: a destroyed message has no `mailboxIds` left to
+read, so it cannot be attributed to a folder. It is reported to the caller that
+asked, which is the one holding the id and able to recognise it.
+
+**PRD section 4.1, Voie 2 names `Email/queryChanges` and needs amending.**
+
+## Still worth raising upstream
+
+The above makes this project work. It does not make the server right, and the
+report stands on its own:
+
+`urn:ietf:params:jmap:mail` is advertised, and one of the methods it defines is
+absent. Every JMAP client that reads the capability and uses `Email/queryChanges`
+breaks on this server, and RFC 8621 section 4.5 defines it as part of what that
+capability means.
+
+Same shape as the `LIST-EXTENDED` report, and the same ask: implement it, or
+make the gap discoverable, so a client can choose the other path deliberately
+instead of failing at runtime.
 
 ## What is already true
 

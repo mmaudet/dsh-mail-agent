@@ -136,13 +136,16 @@ describe('JmapAdapter against Apache James', () => {
     expect(decodeCursor(cursor)?.kind).toBe('jmap');
   });
 
-  // Not a bug in this package, and not skipped to make a suite green: James
-  // answers `unknownMethod` to `Email/queryChanges`, on the container and on
-  // the production deployment alike. `Email/changes` works on both. The delta
-  // feed has to be rebuilt on it, and that is a design change rather than a
-  // fix — see docs/upstream/james-email-querychanges.md.
-  it.skip('follows the delta from a cursor (needs Email/changes, not queryChanges)', () => {
-    expect(true).toBe(true);
+  it('follows the delta from that cursor and finds nothing new behind it', async () => {
+    // The round trip the fake cannot prove: a state this server minted, handed
+    // back to the call that consumes it. This is where `Email/queryChanges`
+    // answered `unknownMethod` on both the container and the production
+    // deployment — see docs/upstream/james-email-querychanges.md.
+    const folders = await adapter.listFolders();
+    const inbox = folders.find((f) => f.role === 'inbox');
+    const cursor = await adapter.currentCursor(inbox?.path ?? 'INBOX');
+
+    await expect(adapter.queryChanges(inbox?.path ?? 'INBOX', cursor)).resolves.toEqual([]);
   });
 
   it('returns nothing rather than failing for ids that do not exist', async () => {

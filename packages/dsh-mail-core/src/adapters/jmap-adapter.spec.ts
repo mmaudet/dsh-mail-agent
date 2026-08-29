@@ -96,13 +96,12 @@ describe('queryChanges', () => {
     await expect(adapter.queryChanges('INBOX', imapCursor)).rejects.toThrow(/Not a JMAP cursor/);
   });
 
-  it('maps added and removed onto the change feed', async () => {
-    const transport = transportOf(MAILBOXES, {
-      oldQueryState: 's1',
-      newQueryState: 's2',
-      added: [{ id: 'e2', index: 0 }],
-      removed: ['e1'],
-    });
+  it('maps created, updated and destroyed onto the change feed', async () => {
+    const transport = transportOf(
+      MAILBOXES,
+      { oldState: 's1', newState: 's2', created: ['e2'], updated: ['e3'], destroyed: ['e1'] },
+      { list: [{ id: 'e2', mailboxIds: { 'mb-inbox': true } }, { id: 'e3', mailboxIds: { 'mb-inbox': true } }] },
+    );
     const adapter = adapterWith(transport);
     const changes = await adapter.queryChanges(
       'INBOX',
@@ -112,26 +111,60 @@ describe('queryChanges', () => {
     expect(changes).toStrictEqual([
       { kind: 'destroyed', id: 'e1', folder: 'INBOX', cursor: 'jmap:s2' },
       { kind: 'created', id: 'e2', folder: 'INBOX', cursor: 'jmap:s2' },
+      // `Email/queryChanges`, which the PRD names, cannot report this at all:
+      // a keyword edit does not move a message in or out of a query.
+      { kind: 'updated', id: 'e3', folder: 'INBOX', cursor: 'jmap:s2' },
     ]);
   });
 
-  it('filters on the resolved mailbox id, not the path', async () => {
-    const transport = transportOf(MAILBOXES, { newQueryState: 's2', added: [], removed: [] });
-    const adapter = adapterWith(transport);
-    await adapter.queryChanges('Newsletters/Tech', encodeCursor({ kind: 'jmap', sinceState: 's1' }));
+  it('drops changes that landed in another folder', async () => {
+    // `Email/changes` is account-wide, so a poll on one folder sees the whole
+    // account's traffic and has to route it.
+    const transport = transportOf(
+      MAILBOXES,
+      { newState: 's2', created: ['e2', 'e9'], updated: [], destroyed: [] },
+      { list: [{ id: 'e2', mailboxIds: { 'mb-inbox': true } }, { id: 'e9', mailboxIds: { 'mb-tech': true } }] },
+    );
+    const changes = await adapterWith(transport).queryChanges(
+      'INBOX',
+      encodeCursor({ kind: 'jmap', sinceState: 's1' }),
+    );
+
+    expect(changes.map((c) => c.id)).toStrictEqual(['e2']);
+  });
+
+  it('counts from the account state and bounds what it asks for', async () => {
+    const transport = transportOf(MAILBOXES, { newState: 's2', created: [], updated: [], destroyed: [] });
+    await adapterWith(transport).queryChanges(
+      'Newsletters/Tech',
+      encodeCursor({ kind: 'jmap', sinceState: 's1' }),
+    );
 
     const [, changesCall] = transport.sent;
-    expect(changesCall?.methodCalls[0]?.[1]).toMatchObject({
-      filter: { inMailbox: 'mb-tech' },
-      sinceQueryState: 's1',
-    });
+    expect(changesCall?.methodCalls[0]?.[0]).toBe('Email/changes');
+    expect(changesCall?.methodCalls[0]?.[1]).toMatchObject({ sinceState: 's1' });
+    // Unbounded, a poll a week behind blocks until it has drained the account.
+    expect((changesCall?.methodCalls[0]?.[1] as { maxChanges?: number }).maxChanges).toBeGreaterThan(0);
+  });
+
+  it('asks nothing more when the account reports no change', async () => {
+    const transport = transportOf(MAILBOXES, { newState: 's1', created: [], updated: [], destroyed: [] });
+    const changes = await adapterWith(transport).queryChanges(
+      'INBOX',
+      encodeCursor({ kind: 'jmap', sinceState: 's1' }),
+    );
+
+    expect(changes).toStrictEqual([]);
+    // Two calls, not three: the mailbox lookup is skipped when there is
+    // nothing to route.
+    expect(transport.sent).toHaveLength(2);
   });
 
   it('fails loudly when the server returns no new state', async () => {
-    const adapter = adapterWith(transportOf(MAILBOXES, { added: [], removed: [] }));
+    const adapter = adapterWith(transportOf(MAILBOXES, { created: [], updated: [], destroyed: [] }));
     await expect(
       adapter.queryChanges('INBOX', encodeCursor({ kind: 'jmap', sinceState: 's1' })),
-    ).rejects.toThrow(/newQueryState/);
+    ).rejects.toThrow(/newState/);
   });
 });
 
@@ -352,9 +385,11 @@ describe('watchInbox', () => {
 
   it('polls the delta when the server signals a state change', async () => {
     const transport = transportOf(
+      // The initial cursor, then the delta, then the lookup that routes it.
+      { state: 's1' },
       MAILBOXES,
-      { queryState: 's1' },
-      { newQueryState: 's2', added: [{ id: 'e5' }], removed: [] },
+      { newState: 's2', created: ['e5'], updated: [], destroyed: [] },
+      { list: [{ id: 'e5', mailboxIds: { 'mb-inbox': true } }] },
     );
     const push = fakePush();
     const adapter = new JmapAdapter({
@@ -397,37 +432,30 @@ describe('currentCursor', () => {
     // The cold start, named: `queryChanges` needs a cursor, and every cursor
     // it produces rides on a `MailChange`, so a quiet folder hands back
     // nothing to resume from. A first run begins here.
-    // The mailbox list comes first: a folder is addressed by path, and the
-    // adapter resolves it to an id before it can filter on it.
-    const transport = transportOf(MAILBOXES, { queryState: 'qs-42', ids: [] });
+    const transport = transportOf({ state: 'ms-42', list: [], notFound: [] });
     const adapter = adapterWith(transport);
 
     const cursor = await adapter.currentCursor('INBOX');
 
-    expect(decodeCursor(cursor)).toEqual({ kind: 'jmap', sinceState: 'qs-42' });
-    const [call] = transport.sent[1]?.methodCalls ?? [];
-    expect(call?.[0]).toBe('Email/query');
-    expect(call?.[1]).toMatchObject({ filter: { inMailbox: 'mb-inbox' } });
-    // Asking for the state must not drag the folder's contents across the
-    // wire: on a real inbox that is tens of thousands of messages. Not zero,
-    // which James rejects as `invalidArguments` while a fake accepts it — a
-    // difference only the integration suite could report.
-    expect((call?.[1] as { limit?: number }).limit).toBe(1);
+    expect(decodeCursor(cursor)).toEqual({ kind: 'jmap', sinceState: 'ms-42' });
+    const [call] = transport.sent[0]?.methodCalls ?? [];
+    // `Email/get` with no ids answers with the account's mail state and
+    // nothing else — the state `Email/changes` counts from.
+    expect(call?.[0]).toBe('Email/get');
+    expect(call?.[1]).toMatchObject({ ids: [] });
   });
 
   it('produces a cursor queryChanges accepts', async () => {
-    const cursor = await adapterWith(transportOf(MAILBOXES, { queryState: 'qs-7' })).currentCursor(
-      'INBOX',
-    );
+    const cursor = await adapterWith(transportOf({ state: 'ms-7' })).currentCursor('INBOX');
     const adapter = adapterWith(
-      transportOf(MAILBOXES, { newQueryState: 'qs-7', added: [], removed: [] }),
+      transportOf(MAILBOXES, { newState: 'ms-7', created: [], updated: [], destroyed: [] }),
     );
 
     await expect(adapter.queryChanges('INBOX', cursor)).resolves.toEqual([]);
   });
 
   it('refuses to invent a state the server did not report', async () => {
-    const adapter = adapterWith(transportOf(MAILBOXES, { ids: [] }));
-    await expect(adapter.currentCursor('INBOX')).rejects.toThrow(/queryState/);
+    const adapter = adapterWith(transportOf({ list: [] }));
+    await expect(adapter.currentCursor('INBOX')).rejects.toThrow(/state/);
   });
 });
