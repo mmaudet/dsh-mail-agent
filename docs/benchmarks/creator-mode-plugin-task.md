@@ -53,6 +53,8 @@ depends on the reviewer remembering is not a procedure.
 | 10 | `qwen/qwen3.8-27b` | 1, over ACP, consent granted | 2 / 6 | **VOID** — upstream truncated mid-run |
 | 11 | `deepseek/deepseek-v4-pro` | 1, over ACP, consent granted | **6 / 6** | **PASS**, unaided, first round |
 | 12 | `qwen/qwen3.8-27b` | 1, rerun after truncation | **6 / 6** | **PASS**, unaided, judge untouched |
+| 13 | `mistralai/mistral-small-2603` | 1, over ACP, same conditions | 3 / 6 | FAIL — same blocking defect, never asked to mount |
+| 14 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, over ACP, same conditions | 5 / 6 | FAIL — mounted, then invented a config shape that fails boot |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -215,6 +217,101 @@ declared the `./plugin` subpath export **and** re-exported `apply`, `name` and
 model to plan before writing — five explicit tasks, revised mid-course — and
 the only one to notice that `applyMailPing(ctx)` registers into `ctx.tools`
 while reasoning about ordering.
+
+## Runs 13 and 14: the two early models, under the conditions the late ones got
+
+Mistral and Nemotron were measured through a broken brief, a driver that dropped
+the consent request, and a judge that could not pass an ACP profile. Every one of
+those defects made a model look worse. Comparing their scores to DeepSeek's and
+Qwen's was comparing two different experiments, and the earlier correction note
+said so without drawing the conclusion.
+
+So both were rerun: fresh clone at `29ab741`, ACP transport, parameterised brief,
+canonical judge, consent answered, `maxTokens` 32768, `timeoutMs` 600000, upstream
+pinned with fallbacks off, round one, no defect list. Nemotron on Venice, whose
+cap is 32768 exactly and whose uptime is 100 — BaseTen offers 182k at 74.2, which
+is the shape of variable that has already voided three runs here.
+
+Both routes were smoke-tested before spending on them.
+
+### The table, finally on one line
+
+| Model | Score | Mounted it | Steps | JMAP discovery |
+|---|---|---|---|---|
+| `mistral-small-2603` (24B) | 3 / 6 | no | 36 | wrong — POSTs at the session resource |
+| `nemotron-3-ultra` (550B) | 5 / 6 | yes | 177 | evaded — demands `apiUrl` as config |
+| `deepseek-v4-pro` (frontier) | **6 / 6** | yes | 21 | wrong — POSTs at the session resource |
+| `qwen3.8-27b` (27B, open) | **6 / 6** | yes | 46 | **right** — reads the session resource |
+
+### Mistral: the fixed harness changed nothing
+
+Its blocking defect is the one it had before and the one Nemotron had before:
+
+```yaml
+name: '@dsh-mail-agent/mail-core'    # resolves to dist/index.js, which has no apply
+```
+
+The row names the package root. Under a brief that names the right profile, a
+driver that answers consent, and a judge that works, the defect is identical.
+**That failure was never the harness**, and now there is a clean run to say so.
+
+Its report is the more interesting part:
+
+> `✅ La structure du patch est correcte`
+
+It is not; that is the blocking defect. And on the step it did not do:
+
+> *Cependant, cela nécessite des permissions supplémentaires qui ne sont pas
+> disponibles dans ce contexte de sandbox.*
+
+**It never asked.** Zero permission requests reached the driver. DeepSeek asked
+fifteen times and Qwen twice, on the same channel, in the same sandbox, and were
+granted every time. Mistral asserted the constraint instead of testing it, then
+reported the task as blocked by it.
+
+That is a distinct failure from not knowing how to mount a bundle. It is
+concluding that an obstacle is impassable without touching it — and the earlier
+rounds could not have shown it, because back then the claim was true.
+
+### Nemotron: it mounted, then invented a contract
+
+It cleared five checks and mounted the bundle itself, which no first round had
+done before the harness was fixed. That much *was* the harness.
+
+Boot fails on its own doing:
+
+```
+MAIL_SENTINEL_JMAP_TOKENS.apiUrl is missing or empty
+```
+
+It decided the token record holds `{ accessToken, apiUrl, eventSourceUrl }` and
+made all three hard requirements at boot. The brief lists that variable as
+`JSON record; accessToken is the bearer`, and supplies the session URL as its own
+separate variable. Two of the three fields are invented, and the invention is
+load-bearing.
+
+It is also the reason Nemotron appears not to have the session-resource bug: it
+POSTs at an `apiUrl`, but it never discovers one. It moved the problem into
+configuration and required somebody else to have solved it. On the specification
+question the task actually poses, that is not a pass — it is a third answer.
+
+It spent 177 steps to Qwen's 46 and DeepSeek's 21, most of them `bash`, and wrote
+an `EventSourcePushChannel` nobody asked for.
+
+### What the reruns settle
+
+Two of the six confounds were hiding real behaviour, and two were not:
+
+- **Nemotron's skipped mounting was the harness.** Given a working consent
+  channel and a brief naming its own profile, it mounted. The old finding is
+  withdrawn for this model.
+- **Mistral's blocking defect was not.** Same row, same failure, clean conditions.
+- **Mistral's skipped mounting was not either**, but for a different reason than
+  the one recorded: not a wrong profile in the brief, but a refusal to test the
+  obstacle.
+- **The JMAP result holds and gets sharper.** Under identical conditions, one of
+  four models reads the session resource, and it is the 27B open-weights one.
+  Two of the three that do not scored a full pass or near it.
 
 ## Run 12: the open-weights result the project was looking for
 

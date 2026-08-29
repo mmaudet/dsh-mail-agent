@@ -547,7 +547,12 @@ method calls go to the `apiUrl` read from it, not to the session URL itself.
 | `qwen3.8-27b` (27B, open weights) | **right** | **6 / 6** |
 
 Three wrong, two of them inside a full pass, and the only correct one from the
-smallest model. Parameter count predicted nothing here.
+smallest model. Nemotron is the third answer: it POSTs at an `apiUrl` but never
+discovers one — it demands the value as configuration, moving the problem to
+whoever fills the environment.
+
+All four ran the same transport, brief, judge, output cap and timeout. Parameter
+count predicted nothing.
 
 ### A green suite means the checks passed, and nothing else
 
@@ -567,11 +572,25 @@ exceptions, a 24B and a 550B failing identically. It read as something real
 about how a stated step in prose fares against everything else in a long task.
 
 Then the brief turned out to name the wrong profile, and the driver turned out
-to hang on the consent that mounting requires. With both fixed, **both models
-mounted on their first round.** The finding was mine.
+to hang on the consent that mounting requires. Both fixed, the two later models
+mounted on their first round, and the finding read as entirely mine.
 
-It survived four rounds and a written comparison table before evaporating, which
-is the honest reason to distrust one's own strongest result.
+Rerunning the two earlier models under those same conditions split it in half.
+**Nemotron mounted** — its old failure was the harness, and that half is
+withdrawn. **Mistral still did not**, and its report says why:
+
+> *Cependant, cela nécessite des permissions supplémentaires qui ne sont pas
+> disponibles dans ce contexte de sandbox.*
+
+It never asked. Zero permission requests reached the driver, on a channel where
+the other models asked seventeen times between them and were granted every time.
+It concluded the obstacle was impassable without touching it — which is a real
+finding, and one the broken harness had been hiding, because back then the claim
+was true.
+
+So the finding was neither mine nor theirs: it was two different things wearing
+the same symptom, and only identical conditions could separate them. That is the
+argument for rerunning the early models rather than annotating the table.
 
 ### Two models debugged the apparatus
 
