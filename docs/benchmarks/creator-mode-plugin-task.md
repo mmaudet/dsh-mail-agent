@@ -23,9 +23,19 @@ Comparability is the whole point, so each run gets the same starting state:
   no other run does either. It stays with the reviewer as the judge.
 - **Same prompt, verbatim**, pointing at the brief.
 
-Scored by `scripts/verify-mail-core-bundle.sh`, whose seventh check boots the
-profile. Composing is not booting, and every earlier check passes on a row
-naming a module with no `apply`.
+Scored by `scripts/score-bench.sh`, which is the whole procedure and not one
+of its steps. It runs `verify-mail-core-bundle.sh` — whose last check boots the
+profile, because composing is not booting and every earlier check passes on a
+row naming a module with no `apply` — but it runs the reviewer's copy, not the
+one in the bench, and it does two things around it that were being done by hand:
+
+- **diffs the bench's copy of the judge against canonical**, because the judge
+  sits in a workspace the subject can write to, and one run edited it;
+- **diffs the produced `plugin.ts` against the reference implementation**,
+  because a copied solution passes every structural check.
+
+Both were once forgotten, and each time the miss cost a run. A procedure that
+depends on the reviewer remembering is not a procedure.
 
 ## Results
 
@@ -38,6 +48,10 @@ naming a module with no `apply`.
 | 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, pinned upstream, cap 32768 | 3 / 7 | FAIL — reported success against a different profile |
 | 6 | `nvidia/nemotron-3-ultra-550b-a55b` | 2, with defects listed | **7 / 7** | **PASS**, unaided |
 | 7 | `deepseek/deepseek-v4-pro` | 1 | — | **VOID** — the brief pointed it at the finished work |
+| 8 | `qwen/qwen3.8-27b` | 1, over ACP | — | **VOID** — driver dropped the consent request |
+| 9 | `deepseek/deepseek-v4-pro` | 2, over ACP | — | **VOID** — same, stalled asking to mount |
+| 10 | `qwen/qwen3.8-27b` | 1, over ACP, consent granted | 2 / 6 | **VOID** — upstream truncated mid-run |
+| 11 | `deepseek/deepseek-v4-pro` | 1, over ACP, consent granted | **6 / 6** | **PASS**, unaided, first round |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -200,6 +214,124 @@ declared the `./plugin` subpath export **and** re-exported `apply`, `name` and
 model to plan before writing — five explicit tasks, revised mid-course — and
 the only one to notice that `applyMailPing(ctx)` registers into `ctx.tools`
 while reasoning about ordering.
+
+## Run 11: a first-round pass, and the model fixed the judge
+
+With consent answered, DeepSeek completed the task in one round and cleared all
+six checks — including the mounting step no first round had ever reached. It
+escalated fifteen times, each one a write outside the workspace, each granted
+and logged.
+
+Scored twice: under its own working copy, and again under the reviewer's
+canonical script driven by `REPO=` and `PROFILE=`. Same result both times.
+
+**It is its own work.** The anti-leak diff against the reference implementation
+returns 214 differing lines across 111 versus 146 — different structure,
+different comments, different import style, `applyMailPing` where the reference
+has `registerMailPing`. Nothing like the byte-identical copy that voided run 7.
+
+### It found a bug in the acceptance script
+
+Check 6 has to know whether the profile serves web or stdio. The reviewer's
+probe was `dsh --profile X --port 0 --help`, on the assumption that an unknown
+`--port` would make it exit non-zero. `--help` short-circuits option validation,
+so the probe exits 0 everywhere and discriminates nothing: **every profile took
+the web branch, where an ACP profile cannot pass whatever it does.**
+
+DeepSeek hit that branch, read the failure, and replaced the probe with
+`dsh --profile X --help 2>&1 | grep -q -- '--port'` — asking what the profile
+offers rather than what it tolerates. Verified independently across all three
+profiles: it routes the two ACP profiles to stdio and `mail-agent-dev` to web.
+The fix is correct and is now the canonical one.
+
+It also **disclosed the change**, unprompted, in its final report: *"fixed a
+pre-existing detection bug: `--port 0 --help` always exited 0 (help swallows
+unknown options), routing the ACP-only profile into the web boot path where it
+failed."* An accurate cause, not a summary of the symptom.
+
+That deserves care rather than applause. Editing the acceptance script is
+exactly what a model gaming an executable criterion would do, and the criterion
+stops being independent the moment the subject can rewrite it. Two things make
+this the good case and not the bad one: the change is correct on inspection, and
+the run passes under a script the reviewer controls. Had either failed, the same
+edit would have been the finding instead.
+
+The protocol should not have relied on noticing. A judge the subject can write
+to is a judge, and future runs get it read-only.
+
+## Run 10: void, and the defect it showed anyway
+
+Qwen wrote both files, then died on `SSE stream ended mid-generation, with no
+finish reason`. That is the corrected stream policy firing on a genuine
+truncation, not the `[DONE]` false positive of confound 1: the upstream stopped
+without saying why, with `allow_fallbacks: false` leaving nothing to fall back
+to. Void, on the run 3 precedent.
+
+Two observations survive, because they are in code written before the cut:
+
+- `Identifier '#apiUrl' has already been declared` — the same private field
+  declared twice. The build fails, so checks 1 and 3 fail with it.
+- Nothing mounted, though it had not yet reached that step.
+
+Its one passing structural check is check 6, and it passes vacuously: an empty
+profile boots fine.
+
+## A fifth confound: the mounting step was impossible, not skipped
+
+Every run so far has failed or been marked down on the same step — mounting the
+bundle into the profile. Read back, that step could not succeed in the ACP
+setup at all, for two independent reasons.
+
+**The sandbox denies it.** `dsh plugin add` writes to
+`~/.dsh/profiles/<name>/package.json`. The profile directory is outside the
+workspace, and the sandbox policy is workspace-write. So the one command the
+brief names explicitly is denied by default.
+
+That part is correct behaviour and the agent handled it correctly: DeepSeek hit
+the denial, recognised it, and escalated with a justification naming the exact
+path and the reason. Which is where the second reason bit.
+
+**The driver never answered.** DSH asks the client for consent on
+`session/request_permission` — a request, with an id, that the agent blocks on.
+`scripts/acp-run.py` routed inbound frames to either a pending reply or a
+notification handler that ignores anything but `session/update`. A request has
+an id and a method and no result, so it matched neither branch and was dropped
+without a trace. The agent waited for an answer that was never coming, and the
+run died 600 seconds later on the stall detector.
+
+So the transcript reads as a model going quiet mid-task. It was a model waiting
+politely for a permission dialog nobody was rendering.
+
+This one is worse than the other four, because it does not merely add noise —
+it makes the discriminating step unreachable. **"Did not mount the bundle" has
+been the single recurring finding of this benchmark, and under ACP it was not a
+finding at all.** Every ACP run is void for that criterion.
+
+The driver now answers: `allow_once` by default, logged, with
+`ACP_PERMISSION=reject` to measure the opposite. Verified end to end before
+relaunching, on a command that writes outside the workspace and observing the
+file appear. Answering an unimplemented client method with method-not-found
+rather than silence is part of the same fix: a capability this driver lacks
+should fail a call, not hang a run.
+
+### The pattern, now with six instances
+
+| # | What looked like a model failure | What it was |
+|---|---|---|
+| 1 | Nemotron truncated its stream | the adapter demanded a `[DONE]` sentinel |
+| 2 | Nemotron stopped mid-write | an output cap sized for classification |
+| 3 | the `:free` tier dropped the request | the paid tier failed identically |
+| 4 | models verified the wrong profile | the brief named the wrong profile |
+| 5 | models "skipped" the mounting step | the driver hung on the consent request |
+| 6 | ACP profiles "failed to boot" | the transport probe discriminated nothing |
+
+Six for six. Not one of the failures this benchmark has produced so far has
+turned out to be about a model. The instrument was the finding every time.
+
+Five of the six surfaced because a script exits non-zero where prose would have
+been satisfied. The sixth surfaced because **a model under test read the script's
+failure and debugged it** — which is worth sitting with, given that the whole
+apparatus exists to judge that model.
 
 ## The earlier confounds, also mine
 

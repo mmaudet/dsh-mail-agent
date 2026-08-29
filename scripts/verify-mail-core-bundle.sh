@@ -107,21 +107,36 @@ fi
 # The one that matters. Composing is not booting: every check above passes on a
 # row naming a module the loader cannot mount.
 step "6. the profile BOOTS"
-# --port 0 asks the OS for a free port, so this never collides with a running
-# session — including the one an agent may be running this script from.
+# Composing is not booting: every check above passes on a row the loader
+# cannot mount. How to observe a boot depends on what the profile serves.
+#
+# A web profile prints "dsh web:" and keeps running, so it is started on an
+# ephemeral port and killed. An ACP profile speaks stdio and has no --port; it
+# binds stdin EOF to a bounded successful shutdown, so booting it with stdin
+# closed loads the whole plugin tree and exits 0. A tree that fails to load
+# exits non-zero either way, which is the thing being tested.
 log=$(mktemp)
-( cd /tmp && exec dsh --profile "$PROFILE" --port 0 >"$log" 2>&1 ) &
-boot_pid=$!
-for _ in $(seq 1 25); do
-  sleep 2
-  grep -q "dsh web:" "$log" 2>/dev/null && break
-  kill -0 "$boot_pid" 2>/dev/null || break
-done
-if grep -q "dsh web:" "$log" 2>/dev/null; then ok; else
-  ko "$(grep -m1 -E 'Error:' "$log" 2>/dev/null || echo 'did not reach "dsh web:"')"
+# --help short-circuits option validation, so probing with "--port 0 --help"
+# succeeds everywhere and is not a test. Ask what the profile's help offers.
+if dsh --profile "$PROFILE" --help 2>&1 | grep -q -- '--port'; then
+  ( cd /tmp && exec dsh --profile "$PROFILE" --port 0 >"$log" 2>&1 ) &
+  boot_pid=$!
+  for _ in $(seq 1 25); do
+    sleep 2
+    grep -q "dsh web:" "$log" 2>/dev/null && break
+    kill -0 "$boot_pid" 2>/dev/null || break
+  done
+  if grep -q "dsh web:" "$log" 2>/dev/null; then ok; else
+    ko "$(grep -m1 -E 'Error:' "$log" 2>/dev/null || echo 'did not reach "dsh web:"')"
+  fi
+  kill "$boot_pid" 2>/dev/null
+  wait "$boot_pid" 2>/dev/null
+else
+  # stdio profile: EOF on stdin is the documented clean shutdown.
+  if (cd /tmp && timeout 120 dsh --profile "$PROFILE" </dev/null >"$log" 2>&1); then ok; else
+    ko "$(grep -m1 -E 'Error:|declares no|invalid plugin' "$log" 2>/dev/null || echo "exited non-zero")"
+  fi
 fi
-kill "$boot_pid" 2>/dev/null
-wait "$boot_pid" 2>/dev/null
 rm -f "$log"
 
 # ---------------------------------------------------------------------------
