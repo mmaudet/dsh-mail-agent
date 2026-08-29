@@ -44,6 +44,7 @@ class AcpClient:
         self._lock = threading.Lock()
         self._log = log
         self._stderr: list[str] = []
+        self.last_activity = time.time()
         threading.Thread(target=self._pump_stdout, daemon=True).start()
         threading.Thread(target=self._pump_stderr, daemon=True).start()
 
@@ -72,6 +73,7 @@ class AcpClient:
             self._stderr.append(line.rstrip())
 
     def _on_notification(self, msg: dict[str, Any]) -> None:
+        self.last_activity = time.time()
         if msg.get("method") != "session/update":
             return
         update = (msg.get("params") or {}).get("update") or {}
@@ -94,7 +96,14 @@ class AcpClient:
         self._proc.stdin.flush()
 
         deadline = time.time() + timeout
+        stall = float(os.environ.get("ACP_STALL_SECONDS", "300"))
         while time.time() < deadline:
+            # A run that has stopped producing anything is stuck, not thinking.
+            # Waiting out the global timeout hides that for half an hour.
+            if method == "session/prompt" and time.time() - self.last_activity > stall:
+                raise TimeoutError(
+                    f"{method}: no activity for {stall:.0f}s (stalled, not slow)"
+                )
             with self._lock:
                 reply = self._replies.pop(rid, None)
             if reply is not None:
