@@ -46,31 +46,12 @@ import {
 const JUNK_SCORE = 10;
 
 /**
- * Display names that, paired with an authentication failure, read as a brand
- * impersonation. Matched case-insensitively as a substring of the display
- * name, so "PayPal" and "PayPal Security Team" both trip it.
+ * A word of this length or more is matched against the domain's words by
+ * containment as well as by equality, so `banque` in `Banque Populaire`
+ * stands for `banquepopulaire.example`. Shorter words are exact matches only:
+ * a short word is too generic to carry the similarity on its own.
  */
-const SPOOFED_BRANDS: readonly string[] = [
-  'paypal',
-  'amazon',
-  'apple',
-  'google',
-  'microsoft',
-  'visa',
-  'mastercard',
-  'american express',
-  'amex',
-  'bank of america',
-  'chase',
-  'citibank',
-  'western union',
-  'icloud',
-  'netflix',
-  'linkedin',
-  'facebook',
-  'instagram',
-  'twitter',
-];
+const MIN_BRAND_WORD_LENGTH = 4;
 
 /**
  * Subject markers for transactional mail: one-time/2FA codes, receipts, order
@@ -187,7 +168,8 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
   // 4. Static rules — VIP, corporate domains, newsletters, transactional.
   if (settled === null) await runNode('static-rule', () => staticRules(message, context));
 
-  // 5. Brand spoofing — a display name claiming a brand while auth fails.
+  // 5. Brand spoofing — a display name claiming an identity its domain does
+  //    not support, while authentication fails.
   if (settled === null) await runNode('brand-spoofing', () => brandSpoofing(message));
 
   // 6. The model — the only node that leaves the process. It is reached only
@@ -273,7 +255,10 @@ function learnedPatterns(message: MailMessage, context: CascadeContext): NodeVer
   const sender = firstFrom(message)?.email.toLowerCase() ?? '';
   const subject = message.subject.toLowerCase();
   for (const pattern of context.learnedPatterns) {
-    const senderHit = pattern.sender !== null && sender.includes(pattern.sender.toLowerCase());
+    // Full-address equality, per the contract in `types.ts`: a pattern learned
+    // for `veille@partenaire.example` must not fire on a crafted address that
+    // merely contains it.
+    const senderHit = pattern.sender !== null && sender === pattern.sender.toLowerCase();
     const subjectHit = pattern.subjectContains !== null && subject.includes(pattern.subjectContains.toLowerCase());
     if (senderHit || subjectHit) {
       return {
@@ -290,6 +275,12 @@ function learnedPatterns(message: MailMessage, context: CascadeContext): NodeVer
  * Node 4: the explicit rules. Order is by cost and certainty — a VIP is
  * answered before any other rule is even considered, and a transactional
  * marker is checked before a generic bulk signal, since the two are disjoint.
+ *
+ * A corporate domain deliberately settles nothing: it answers the
+ * legitimacy question, not the category one (PRD section 4.2). Stamping
+ * every message from a colleague as `standard` at confidence 1 would keep
+ * node 7 from degrading it and node 6 from ever seeing it, so a message
+ * from a corporate domain simply continues down the cascade.
  */
 function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict | null {
   const from = firstFrom(message);
@@ -297,12 +288,6 @@ function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict
     const email = from.email.toLowerCase();
     if (context.vipSenders.some((vip) => vip.toLowerCase() === email)) {
       return { category: 'important', confidence: 1, rationale: 'sender is on the VIP list' };
-    }
-    const domain = domainOf(email);
-    if (context.corporateDomains.some((d) => d.toLowerCase() === domain)) {
-      // A known corporate sender is legitimate, not urgent by itself, so it
-      // settles as `standard` rather than inflating to `important`.
-      return { category: 'standard', confidence: 1, rationale: 'sender is on a known corporate domain' };
     }
   }
   if (hasAnyMarker(message.subject.toLowerCase(), TRANSACTIONAL_MARKERS)) {
@@ -316,22 +301,24 @@ function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict
 }
 
 /**
- * Node 5: a brand impersonation is an authentication problem, not a content
- * one. It needs both a display name that claims a known brand and a failed
- * authentication result, so a legitimate sender whose DMARC is merely "none"
- * is never caught.
+ * Node 5: an impersonation is an authentication problem, not a content one.
+ *
+ * The signal is the comparison PRD section 4.2 node 5 names: a failed
+ * authentication plus a display name that claims an identity the sender's
+ * own address does not support. A display name consistent with its address —
+ * no matter how badly its authentication is configured — is not an
+ * impersonation, so no list of "known brands" stands in for the comparison.
  */
 function brandSpoofing(message: MailMessage): NodeVerdict | null {
-  const displayName = firstFrom(message)?.name?.toLowerCase() ?? '';
-  const claimsBrand = SPOOFED_BRANDS.some((brand) => displayName.includes(brand));
-  if (claimsBrand && authenticationFailed(message.spamHeaders)) {
-    return {
-      category: 'spam-certain',
-      confidence: 1,
-      rationale: 'display name claims a brand while message authentication fails',
-    };
-  }
-  return null;
+  const from = firstFrom(message);
+  if (from === null || from.name === null || from.name.trim() === '') return null;
+  if (!authenticationFailed(message.spamHeaders)) return null;
+  if (nameSupportedByDomain(from.name, domainOf(from.email.toLowerCase()))) return null;
+  return {
+    category: 'spam-certain',
+    confidence: 1,
+    rationale: 'display name claims an identity the sender domain does not support, while message authentication fails',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -354,6 +341,43 @@ function domainOf(email: string): string {
 function localPartOf(email: string): string {
   const local = email.split('@')[0];
   return local === undefined ? '' : local;
+}
+
+/**
+ * Whether a display name's claimed identity is supported by the sender's
+ * domain — the comparison PRD section 4.2 node 5 asks for, in place of a
+ * fixed brand list.
+ *
+ * A name is supported when at least one of its words is backed by a word of
+ * the domain: an exact match ("Boutique" against `boutique.example`), or —
+ * for words of four characters or more — the word contained in a domain word
+ * ("Banque" against `banquepopulaire.example`). A lookalike spelling is not
+ * support: "PayPal" is not found in `paypa1-secure.example`, so the name is
+ * claiming an identity the domain does not stand behind.
+ *
+ * Comparison is case-insensitive on normalised words, so accents and
+ * punctuation do not matter.
+ */
+function nameSupportedByDomain(displayName: string, domain: string): boolean {
+  const nameWords = normalizeWords(displayName);
+  const domainWords = normalizeWords(domain);
+  if (nameWords.length === 0 || domainWords.length === 0) return false;
+  return nameWords.some((word) =>
+    domainWords.some((dw) => dw === word || (word.length >= MIN_BRAND_WORD_LENGTH && dw.includes(word))),
+  );
+}
+
+/**
+ * Lowercase, strip accents, split on anything that is not a letter or digit.
+ * `paypa1-secure.example` becomes `['paypa1', 'secure', 'example']`.
+ */
+function normalizeWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(' ')
+    .filter((w) => w.length > 0);
 }
 
 /** The numeric spam-filter score, or `null` when absent or unparseable. */
