@@ -827,6 +827,26 @@ than its evidence supports.** Twice now the fix has been to take authority away
 rather than sharpen the heuristic, and that is starting to look like the general
 move rather than a local one.
 
+### 43% was not efficiency, it was an unreviewed guess
+
+Removing the catch-all dropped the free rate from 43% to 10% on the same 100
+messages. The row that justifies it: **`important` doubled, from 12 to 24.**
+
+Twelve messages the owner is expected to act on were being filed as technology
+newsletters by a default nobody had looked at — and in Phase 3 they would have
+been moved out of the inbox.
+
+**A cheap wrong answer is not a saving.** It is the most expensive kind, because
+it is the one nobody reviews. Any cascade-style architecture that reports a
+"settled without the expensive path" metric should be read with that in mind:
+the metric counts decisions, not correct ones, and the two diverge exactly where
+a rule is guessing.
+
+The efficiency is meant to come back through learned patterns, not through
+restoring the guess. The difference is not the number — it is that a learned
+pattern is evidence about *this* mailbox and a default is a guess about
+somebody's.
+
 ### Three instruments, three sets of findings
 
 The integration suite, the live `mail_ping`, and now the dry run. Each found

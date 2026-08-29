@@ -87,6 +87,43 @@ fallback stops being a category, or it stops being certain.
   hop, and reading them as this delivery's authentication would let a forwarding
   chain decide whether mail is forged. They are excluded deliberately.
 
+## What the fix cost, and what it revealed
+
+The catch-all was removed: node 4 now declines when nothing says which kind of
+bulk a message is. Same 100 messages, before and after:
+
+| | with the default | declining |
+|---|---|---|
+| settled free | **43%** | **10%** |
+| `newsletter-tech` | 39 | 11 |
+| `important` | 12 | **24** |
+| `standard` | 22 | 29 |
+| `newsletter-notification` | 16 | 20 |
+
+The efficiency number fell by a third of the mailbox. The reason to accept that
+is in the third row: **`important` doubled.** Twelve messages the owner is
+expected to act on were being filed as technology newsletters by a default, and
+in Phase 3 they would have been moved out of the inbox into `Newsletters/Tech`.
+
+So the 43% was not efficiency. It was a rule answering questions it could not
+see, and being counted as a saving because nothing checked what it answered.
+
+**A cheap wrong answer is not a saving.** It is the most expensive kind, because
+it is the one nobody reviews.
+
+### Where the efficiency is meant to come back
+
+Not by restoring the guess. Node 3 — learned patterns — is precisely the node
+that should absorb this: the model classifies a recurring bulk sender once, and
+every message from it thereafter is settled for free by a pattern that was
+learned rather than assumed. That node has no source of patterns yet, which is
+why the honest figure today is 10% and why building it is the next thing worth
+doing.
+
+The difference between the two designs is not the number. It is that a learned
+pattern is evidence about *this* mailbox and a default is a guess about
+somebody's.
+
 ## The pattern, again
 
 Every one of these was invisible to 234 unit tests and to a container. The dry
