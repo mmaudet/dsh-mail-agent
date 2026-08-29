@@ -43,6 +43,11 @@ export class StreamTranslator {
   #finish: FinishReason | null = null;
   #usage: TokenUsage | null = null;
 
+  /** Whether the provider said why generation stopped. */
+  get sawFinishReason(): boolean {
+    return this.#finish !== null;
+  }
+
   /** Consume one parsed wire chunk, yielding whatever it completes. */
   *accept(payload: unknown): Generator<StreamChunk> {
     const usage = readUsage(readProp(payload, 'usage'));

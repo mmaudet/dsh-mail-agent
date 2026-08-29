@@ -3,15 +3,16 @@
  *
  * Framing is `eventsource-parser`'s: chunk reassembly, UTF-8 split across
  * reads, CRLF, BOM, comments and multi-`data:` joining. This module owns only
- * the protocol convention — `[DONE]` is yielded so the caller controls the
- * final flush, and end-of-stream without it is truncation.
+ * the protocol convention: `[DONE]` is yielded so the caller controls the
+ * final flush, and the end of the stream is reported rather than hidden.
  *
- * A truncated stream is a failure, not an empty answer: the model call cannot
- * be trusted, and silently returning what arrived would hand the loop a
- * plausible-looking partial response.
+ * Whether ending without `[DONE]` is a failure is not decidable here. A
+ * provider that omits the sentinel after delivering a finish reason has sent a
+ * complete response; one that stops mid-generation has not, and returning what
+ * arrived would hand the loop a plausible-looking fragment. Only the caller,
+ * which has seen the chunks, can tell those apart.
  */
 
-import { LlmError } from '@deepseek-ai/dsh-llm';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 /** The terminal payload the OpenAI protocol sends after the last chunk. */
@@ -28,6 +29,4 @@ export async function* parseSse(
     yield event.data;
     if (event.data === DONE) return;
   }
-
-  throw new LlmError('SSE stream ended without [DONE]', 'STREAM_CLOSED');
 }

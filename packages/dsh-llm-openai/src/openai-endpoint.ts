@@ -249,17 +249,31 @@ async function* readStream(response: Response): AsyncGenerator<StreamChunk> {
   const body = response.body;
   if (body === null) throw new LlmError('Endpoint returned no body', 'STREAM_CLOSED');
 
+  let sawDone = false;
   for await (const payload of parseSse(body)) {
-    if (payload === DONE) break;
+    if (payload === DONE) {
+      sawDone = true;
+      break;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(payload);
     } catch {
-      // A single unparsable frame is not worth failing the call; the stream
-      // still ends on [DONE], and a truncated stream is caught there.
+      // One unparsable frame is not worth failing a call the rest of which
+      // arrived intact.
       continue;
     }
     yield* translator.accept(parsed);
+  }
+
+  // A provider may end the stream without the sentinel. That is complete when
+  // it already told us why generation stopped, and truncation when it did not:
+  // acting on half a classification is worse than reporting a failed call.
+  if (!sawDone && !translator.sawFinishReason) {
+    throw new LlmError(
+      'SSE stream ended mid-generation, with no finish reason',
+      'STREAM_CLOSED',
+    );
   }
   yield* translator.flush();
 }

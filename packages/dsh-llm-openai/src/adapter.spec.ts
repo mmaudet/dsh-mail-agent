@@ -298,10 +298,33 @@ describe('the adapter stream contract', () => {
     expect(chunks.at(-1)?.type).toBe('finish');
   });
 
-  it('treats a stream ending without [DONE] as truncation', async () => {
+  it('treats a stream ending mid-generation as truncation', async () => {
+    // No finish_reason arrived: the provider stopped without saying why, so
+    // what arrived cannot be told apart from a complete answer.
     await expect(
       collect(adapterWith(chunk({ content: 'a' })).stream(options())),
-    ).rejects.toThrow(/\[DONE\]/);
+    ).rejects.toMatchObject({ code: 'STREAM_CLOSED' });
+  });
+
+  it('accepts a stream that ends after a finish reason but without [DONE]', async () => {
+    // Some providers omit the sentinel. Once they have said why generation
+    // stopped, the response is complete and discarding it loses real work.
+    const chunks = await collect(
+      adapterWith(chunk({ content: 'a' }), chunk({}, 'stop')).stream(options()),
+    );
+
+    expect(chunks.at(-1)).toStrictEqual({ type: 'finish', reason: { kind: 'stop' } });
+    expect(chunks.some((c) => c.type === 'text-delta')).toBe(true);
+  });
+
+  it('still fails when tool arguments were still streaming', async () => {
+    await expect(
+      collect(
+        adapterWith(
+          chunk({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'f', arguments: '{"a"' } }] }),
+        ).stream(options()),
+      ),
+    ).rejects.toMatchObject({ code: 'STREAM_CLOSED' });
   });
 });
 
@@ -612,7 +635,7 @@ describe('the fallback chain', () => {
       (async () => {
         for await (const c of adapter.stream(options({ provider: PRIMARY }))) seen.push(c);
       })(),
-    ).rejects.toThrow(/\[DONE\]/);
+    ).rejects.toMatchObject({ code: 'STREAM_CLOSED' });
 
     expect(seen.some((c) => c.type === 'text-delta')).toBe(true);
     expect(urls).toHaveLength(1);
