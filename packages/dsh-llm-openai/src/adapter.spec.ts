@@ -671,3 +671,55 @@ describe('the fallback chain', () => {
     expect(route().fallback).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Gateway provider routing
+// ---------------------------------------------------------------------------
+
+describe('provider routing', () => {
+  it('sends nothing when the route expresses no preference', () => {
+    const body = serializeRequest(options(), { model: MODEL });
+    expect(body).not.toHaveProperty('provider');
+  });
+
+  it('passes the preference through verbatim', () => {
+    const routing = { order: ['BaseTen'], allow_fallbacks: false };
+    const body = serializeRequest(options(), { model: MODEL, providerRouting: routing });
+    expect(body['provider']).toStrictEqual(routing);
+  });
+
+  it('pins the upstream on the wire, which is what makes a run reproducible', async () => {
+    const fetcher = vi.fn<Fetcher>(() =>
+      Promise.resolve(new Response(sseStream(chunk({}, 'stop'), '[DONE]'), { status: 200 })),
+    );
+    const adapter = new OpenAiEndpointAdapter({
+      routes: new Map([
+        ['mail-llm-economy', route({ providerRouting: { order: ['BaseTen'], allow_fallbacks: false } })],
+      ]),
+      fetcher,
+    });
+    await collect(adapter.stream(options()));
+
+    const sent: unknown = JSON.parse(fetcher.mock.calls[0]?.[1].body as string);
+    expect((sent as Record<string, unknown>)['provider']).toStrictEqual({
+      order: ['BaseTen'],
+      allow_fallbacks: false,
+    });
+  });
+
+  it('lets a tier override the plugin-wide preference', () => {
+    const routes = resolveRoutes(
+      {
+        baseUrl: GATEWAY,
+        model: MODEL,
+        apiKeyEnv: 'MAIL_SENTINEL_API_KEY',
+        providerRouting: { order: ['DeepInfra'] },
+        tiers: { draft: { providerRouting: { order: ['BaseTen'] } } },
+      },
+      { MAIL_SENTINEL_API_KEY: 'k' },
+    );
+
+    expect(routes.get('mail-llm-economy')?.providerRouting).toStrictEqual({ order: ['DeepInfra'] });
+    expect(routes.get('mail-llm-draft')?.providerRouting).toStrictEqual({ order: ['BaseTen'] });
+  });
+});

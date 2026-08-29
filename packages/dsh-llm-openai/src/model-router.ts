@@ -38,6 +38,7 @@ export interface TierConfig {
   readonly timeoutMs?: number | undefined;
   readonly contextWindow?: number | undefined;
   readonly reasoning?: ReasoningSettings | undefined;
+  readonly providerRouting?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**
@@ -64,6 +65,7 @@ export function buildRoutes(
       timeoutMs: config.timeoutMs,
       contextWindow: config.contextWindow,
       reasoning: config.reasoning,
+      providerRouting: config.providerRouting,
     });
   }
   return routes;

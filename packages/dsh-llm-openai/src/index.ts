@@ -46,6 +46,8 @@ export interface TierSettings {
    * the seam through which one arrives without touching the adapter.
    */
   readonly reasoning?: ReasoningSettings;
+  /** Gateway routing preferences, for a gateway that serves one model from several upstreams. */
+  readonly providerRouting?: Readonly<Record<string, unknown>>;
   /** Name of the environment variable holding the bearer token. */
   readonly apiKeyEnv?: string;
   readonly maxTokens?: number;
@@ -60,6 +62,8 @@ export interface OpenAiPluginConfig {
   readonly apiKeyEnv: string;
   readonly timeoutMs?: number;
   readonly providerPrefix?: string;
+  /** Default routing preferences for every tier that does not override them. */
+  readonly providerRouting?: Readonly<Record<string, unknown>>;
   /** Endpoints the adapter may reach; empty disables the check. */
   readonly trustedEndpoints?: readonly string[];
   readonly tiers?: Partial<Record<Tier, TierSettings>>;
@@ -96,6 +100,7 @@ export function resolveRoutes(
       timeoutMs: settings.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       contextWindow: settings.contextWindow,
       reasoning: settings.reasoning,
+      providerRouting: settings.providerRouting ?? config.providerRouting,
     };
   }
 

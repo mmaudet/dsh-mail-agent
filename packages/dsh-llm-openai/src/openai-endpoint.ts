@@ -38,6 +38,17 @@ export interface EndpointRoute {
    */
   readonly reasoning?: ReasoningSettings | undefined;
   /**
+   * Gateway routing preferences, passed through verbatim as the request's
+   * `provider` field.
+   *
+   * A gateway may serve one model from several upstreams whose limits differ:
+   * for one model observed here, `max_completion_tokens` ranged from 16k to
+   * 182k across three providers. Leaving the choice to the gateway makes the
+   * effective limit — and where the request is physically served — vary
+   * between two otherwise identical calls.
+   */
+  readonly providerRouting?: Readonly<Record<string, unknown>> | undefined;
+  /**
    * Other route keys to try, in order, when this one cannot answer.
    *
    * Empty today: the sovereign gateway serves one model that can drive a
@@ -139,6 +150,9 @@ export class OpenAiEndpointAdapter extends LlmAdapter {
           ...(route.supportsStop === undefined ? {} : { supportsStop: route.supportsStop }),
           ...(route.supportsTools === undefined ? {} : { supportsTools: route.supportsTools }),
           ...(route.reasoning === undefined ? {} : { reasoning: route.reasoning }),
+          ...(route.providerRouting === undefined
+            ? {}
+            : { providerRouting: route.providerRouting }),
         },
       );
 

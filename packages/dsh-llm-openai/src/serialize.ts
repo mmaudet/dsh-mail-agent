@@ -44,6 +44,8 @@ export interface SerializeOptions {
   readonly supportsStop?: boolean;
   readonly supportsTools?: boolean;
   readonly reasoning?: ReasoningSettings | undefined;
+  /** Gateway routing preferences, sent verbatim as `provider`. */
+  readonly providerRouting?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**
@@ -97,6 +99,9 @@ export function serializeRequest(
     ...(options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens }),
     ...(options.stop === undefined || options.stop.length === 0 ? {} : { stop: options.stop }),
     ...reasoningFields,
+    ...(serialize.providerRouting === undefined
+      ? {}
+      : { provider: serialize.providerRouting }),
   };
 }
 
