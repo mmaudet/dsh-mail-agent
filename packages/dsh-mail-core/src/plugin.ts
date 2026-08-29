@@ -1,104 +1,146 @@
 /**
- * Cordis plugin that turns the mail-core package into a mountable bundle.
+ * The Cordis plugin that makes this package a mountable bundle.
  *
- * It builds a JMAP adapter, wraps it in the MailboxService, and registers the
- * mail_ping tool. Consumers reach the service as ctx.mailbox.
+ * It builds a JMAP adapter, exposes it as `ctx.mailbox`, and registers the
+ * `mail_ping` tool. The row that mounts it must name the `./plugin` subpath
+ * export: the package root resolves to `index.js`, which exports no `apply`.
  */
 
 import type { Context } from '@deepseek-ai/cordis';
 
+import { JmapAdapter, type JmapTransport } from './adapters/jmap-adapter.js';
 import { MailboxService } from './mail-service.js';
-import { JmapAdapter } from './adapters/jmap-adapter.js';
 import { apply as registerMailPing } from './tools/mail-ping.js';
 
-/** Plugin name used in the harness. */
+/**
+ * Configuration carries environment-variable *names*, never values: the
+ * harness credential seam addresses secrets by name and resolves them.
+ */
+export interface MailCoreConfig {
+  readonly accountIdEnv: string;
+  readonly identityIdEnv: string;
+  readonly sessionUrlEnv: string;
+  /** Holds the stored token record; `accessToken` is the bearer. */
+  readonly tokensEnv?: string | undefined;
+}
+
+export const DEFAULT_TOKENS_ENV = 'MAIL_SENTINEL_JMAP_TOKENS';
+
 export const name = 'dsh-mail-core';
 
-/** Services this plugin injects. */
 export const inject = ['tools'];
 
-/** Plugin entry point. */
-export function apply(ctx: Context, config: { accountIdEnv: string; identityIdEnv: string; sessionUrlEnv: string }): void {
-  // Resolve environment variable names from config
-  const accountIdEnv = config.accountIdEnv;
-  const identityIdEnv = config.identityIdEnv;
-  const sessionUrlEnv = config.sessionUrlEnv;
+type Env = Readonly<Record<string, string | undefined>>;
 
-  // Build the JMAP transport that fetches session to get apiUrl, then POSTs with a bearer token
-  const transport = {
-    async request(body: unknown) {
-      // Fetch the JMAP session to get the apiUrl
-      const sessionUrl = process.env[sessionUrlEnv];
-      if (!sessionUrl) {
-        throw new Error(`${sessionUrlEnv} is not set`);
-      }
+/**
+ * A transport over the JMAP session resource.
+ *
+ * The session is fetched once and its `apiUrl` cached. RFC 8620 section 2
+ * makes the session a discovery document, not a per-call endpoint; fetching it
+ * on every method call would double the round trips of every operation the
+ * agent performs.
+ *
+ * The bearer is read at call time rather than captured, so a refreshed token
+ * takes effect without rebuilding the transport.
+ */
+export function createJmapTransport(
+  config: MailCoreConfig,
+  env: Env = process.env,
+  fetcher: typeof fetch = fetch,
+): JmapTransport {
+  const tokensEnv = config.tokensEnv ?? DEFAULT_TOKENS_ENV;
+  let apiUrl: string | null = null;
 
-      const tokensEnv = process.env.MAIL_SENTINEL_JMAP_TOKENS;
-      if (!tokensEnv) {
-        throw new Error('MAIL_SENTINEL_JMAP_TOKENS is not set');
-      }
+  const bearer = (): string => {
+    const raw = env[tokensEnv];
+    if (raw === undefined || raw.length === 0) throw new Error(`${tokensEnv} is not set`);
 
-      let tokens: { accessToken: string };
-      try {
-        tokens = JSON.parse(tokensEnv) as { accessToken: string };
-      } catch {
-        throw new Error('MAIL_SENTINEL_JMAP_TOKENS is not valid JSON');
-      }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // The value is a credential record: report the shape, never the content.
+      throw new Error(`${tokensEnv} is not valid JSON`);
+    }
+    const token =
+      typeof parsed === 'object' && parsed !== null
+        ? (parsed as Record<string, unknown>)['accessToken']
+        : undefined;
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new Error(`${tokensEnv} holds no accessToken`);
+    }
+    return token;
+  };
 
-      // Fetch session to get apiUrl
-      const sessionResponse = await fetch(sessionUrl, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${tokens.accessToken}`,
-        },
-      });
+  const resolveApiUrl = async (token: string): Promise<string> => {
+    if (apiUrl !== null) return apiUrl;
 
-      if (!sessionResponse.ok) {
-        throw new Error(`JMAP session fetch failed: ${sessionResponse.status} ${sessionResponse.statusText}`);
-      }
+    const sessionUrl = env[config.sessionUrlEnv];
+    if (sessionUrl === undefined || sessionUrl.length === 0) {
+      throw new Error(`${config.sessionUrlEnv} is not set`);
+    }
 
-      const session = await sessionResponse.json() as { apiUrl: string };
-      const apiUrl = session.apiUrl;
+    const response = await fetcher(sessionUrl, {
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`JMAP session fetch returned ${String(response.status)}`);
+    }
 
-      // POST method calls to the apiUrl
-      const response = await fetch(apiUrl, {
+    const session: unknown = await response.json();
+    const found =
+      typeof session === 'object' && session !== null
+        ? (session as Record<string, unknown>)['apiUrl']
+        : undefined;
+    if (typeof found !== 'string' || found.length === 0) {
+      throw new Error('JMAP session carried no apiUrl');
+    }
+
+    apiUrl = found;
+    return found;
+  };
+
+  return {
+    async request(body): Promise<unknown> {
+      const token = bearer();
+      const url = await resolveApiUrl(token);
+
+      const response = await fetcher(url, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${tokens.accessToken}`,
-          'Content-Type': 'application/json',
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/json',
         },
         body: JSON.stringify(body),
       });
-
       if (!response.ok) {
-        throw new Error(`JMAP request failed: ${response.status} ${response.statusText}`);
+        // A stale session can outlive its apiUrl; drop the cache so the next
+        // call rediscovers rather than repeating a dead endpoint forever.
+        if (response.status === 404 || response.status === 410) apiUrl = null;
+        throw new Error(`JMAP request returned ${String(response.status)}`);
       }
-
       return response.json();
     },
   };
+}
 
-  // Build the JMAP adapter with account and identity from env using config variable names
-  const accountId = process.env[accountIdEnv];
-  const identityId = process.env[identityIdEnv];
-
-  if (!accountId) {
-    throw new Error(`${accountIdEnv} is not set`);
+export function apply(ctx: Context, config: MailCoreConfig): void {
+  const accountId = process.env[config.accountIdEnv];
+  const identityId = process.env[config.identityIdEnv];
+  if (accountId === undefined || accountId.length === 0) {
+    throw new Error(`${config.accountIdEnv} is not set`);
   }
-
-  if (!identityId) {
-    throw new Error(`${identityIdEnv} is not set`);
+  if (identityId === undefined || identityId.length === 0) {
+    throw new Error(`${config.identityIdEnv} is not set`);
   }
 
   const adapter = new JmapAdapter({
-    transport,
+    transport: createJmapTransport(config),
     accountId,
     identityId,
   });
 
-  // Mount MailboxService so consumers reach it as ctx.mailbox
   ctx.plugin(MailboxService, adapter);
-
-  // Register the mail_ping tool
   registerMailPing(ctx);
 }
