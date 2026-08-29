@@ -507,6 +507,106 @@ never pointing a Creator session at the production profile or a real mailbox
 this session, which is the right default and also the reason the question was
 asked rather than acted upon.
 
+## §7 — What four models on one task actually showed
+
+Twelve runs, four models, one authoring task with an executable criterion. What
+survives is not the table.
+
+### The instrument was the finding six times out of six
+
+Every apparent model failure this benchmark produced turned out to be a defect
+in the apparatus: a stream policy demanding a `[DONE]` sentinel, an output cap
+sized for classifying mail, a serving tier blamed on three consistent and wrong
+checks, a brief naming the wrong profile, a driver that dropped the agent's
+consent request, and a transport probe that discriminated nothing.
+
+**All six made the models look worse than they were.** That direction is not an
+accident and it is the part worth publishing: a broken harness produces false
+negatives, and false negatives are comfortable, because they agree with what one
+already suspects about a smaller model. The single confound that ran the other
+way — a brief pointing the model at the finished work, which produced a
+byte-identical copy — was caught only by a check written specifically to look
+for it.
+
+The corollary is uncomfortable for anyone publishing a model comparison: **the
+confounds were found only because the criterion was executable.** Prose
+acceptance criteria were satisfied, in run 1, by greps matching the agent's own
+writes. All six would have stood.
+
+### The one finding that is about models
+
+One detail in the task requires reading a specification rather than imitating
+the neighbouring file: JMAP's session resource is a discovery document, and
+method calls go to the `apiUrl` read from it, not to the session URL itself.
+
+| Model | JMAP discovery | Score |
+|---|---|---|
+| `mistral-small-2603` (24B) | wrong | 4 / 7 |
+| `nemotron-3-ultra` (550B) | wrong | **7 / 7** |
+| `deepseek-v4-pro` (frontier) | wrong | **6 / 6** |
+| `qwen3.8-27b` (27B, open weights) | **right** | **6 / 6** |
+
+Three wrong, two of them inside a full pass, and the only correct one from the
+smallest model. Parameter count predicted nothing here.
+
+### A green suite means the checks passed, and nothing else
+
+Both full passes above ship the same protocol bug. The acceptance script tests
+structure and boot; it never opens a JMAP connection, because the brief put that
+out of scope. It was right to be silent and its silence is not evidence.
+
+An executable criterion is necessary — it changed the outcome for the same model
+between rounds — and it is not sufficient. Only a human read caught the bug, in
+all three cases where it was present.
+
+### The finding that dissolved
+
+For four rounds the strongest cross-model signal was that every first round
+skipped the mounting step the brief named explicitly — three models, no
+exceptions, a 24B and a 550B failing identically. It read as something real
+about how a stated step in prose fares against everything else in a long task.
+
+Then the brief turned out to name the wrong profile, and the driver turned out
+to hang on the consent that mounting requires. With both fixed, **both models
+mounted on their first round.** The finding was mine.
+
+It survived four rounds and a written comparison table before evaporating, which
+is the honest reason to distrust one's own strongest result.
+
+### Two models debugged the apparatus
+
+Nemotron traced a boot failure to a redundant `ctx.provide` beside the
+`super(ctx, 'mailbox')` the constructor already performs, and removed it.
+DeepSeek hit a broken branch in the acceptance script, diagnosed the cause
+correctly — `--help` short-circuits option validation, so the probe exits 0
+everywhere — fixed it, and said so in its report. Both are debugging from a
+symptom, not pattern completion.
+
+The second one is also the uncomfortable case: **the judge lived in a workspace
+the subject could write to.** The edit was correct and disclosed, and it still
+means the criterion stopped being independent, with nothing but the reviewer's
+attention standing between that and a false pass. The scoring is now a procedure
+that diffs the judge before trusting a verdict.
+
+### What none of it supports
+
+One run per model per task. Nothing about classification, which is a different
+job by an order of magnitude in every dimension. No ranking between the two
+models that passed, which ran under different conditions. And nothing at all
+about how these models behave under a vaguer brief, which is how most people
+will actually use them.
+
+### The consequence for the architecture
+
+[ADR-0003](decisions/ADR-0003-authoring-and-runtime-models.md) splits the model
+that writes the agent from the model that runs it, and justified the split partly
+on sovereignty: authoring needed a frontier model, which sits outside the
+perimeter, and that was acceptable because authoring never sees mail content.
+
+A 27B open-weights model passing the authoring benchmark removes that half of the
+argument. The split survives on cost — authoring is rare and expensive per call,
+classification constant and cheap — but it is no longer forced.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
