@@ -234,7 +234,37 @@ export const CORPUS: readonly CorpusCase[] = [
     decidedBy: 'below-threshold',
     because: 'too little signal to classify; must degrade rather than guess',
   },
+
+  // --- learned patterns: node 3, which runs before the static rules --------
+  {
+    message: message({
+      id: 'c14',
+      from: [{ name: 'Veille Interne', email: 'veille@partenaire.example' }],
+      subject: 'Revue hebdo des publications',
+      bodyText: 'Les publications de la semaine, sans action attendue.',
+    }),
+    expected: 'newsletter-tech',
+    decidedBy: 'learned-pattern',
+    because: 'a recurring sender the owner has always filed here, with no unsubscribe header for a static rule to key on',
+  },
 ];
+
+/**
+ * The patterns the corpus assumes have been learned for its owner.
+ *
+ * Only `c14` depends on them, and it depends on them entirely: nothing in that
+ * message is distinguishable by a static rule, which is the point. Node 3 runs
+ * before node 4, so a case a static rule could also settle would not prove the
+ * learned pattern ran.
+ */
+export const CORPUS_LEARNED_PATTERNS = [
+  {
+    sender: 'veille@partenaire.example',
+    subjectContains: null,
+    category: 'newsletter-tech',
+    confidence: 0.9,
+  },
+] as const;
 
 /** Cases the cascade must decide without any model call (the efficiency KPI). */
 export const NO_LLM_CASES: readonly CorpusCase[] = CORPUS.filter(
