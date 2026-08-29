@@ -90,3 +90,77 @@ that is the reason.
 - `packages/dsh-mail-core/src/adapters/jmap-adapter.ts` — `JmapTransport`, the
   interface your transport implements
 - `packages/dsh-mail-core/src/tools/mail-ping.ts` — the tool to register
+
+---
+
+# Correction round
+
+A first attempt reported success. The profile does not boot. Five defects, in
+the order they matter.
+
+**The acceptance check is now a script.** Run it; it exits non-zero until the
+task is done:
+
+```bash
+bash ~/work/dsh-mail-agent/scripts/verify-mail-core-bundle.sh
+```
+
+Do not report success on any other basis. A `grep` that matches a line you
+just wrote is not a verification — that is how the first attempt concluded it
+had finished.
+
+## 1. Blocking: the row names the package root
+
+`name: '@dsh-mail-agent/mail-core'` resolves to `dist/index.js`, which exports
+types and values but no `apply`. The harness says so:
+
+```
+invalid plugin, expect function or object with an "apply" method, received object
+```
+
+Declare a subpath export for the plugin and name **that** in the row.
+`@deepseek-ai/dsh-headless` in the harness repository does exactly this with
+its `./startup` export; copy the shape.
+
+## 2. The bundle was never mounted
+
+The row was inserted into the **profile's** `cordis.patch.yml` instead. That
+bypasses the bundle mechanism entirely and leaves the package's own
+`cordis.patch.yml` unread — dead code. The task is to make the package a
+mountable bundle: `dsh plugin --profile mail-agent-dev add <path>`, so
+`# == @dsh-mail-agent/mail-core` appears as a layer in `--dump-config`.
+
+Leave the profile's own patch alone. It carries the operator's model choice.
+
+## 3. `dsh.bundle` has the wrong shape
+
+`{"bundle": true}` is not it. The correct shape is in
+`packages/dsh-llm-openai/package.json`, one directory away:
+
+```json
+"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+```
+
+## 4. The configuration is decorative
+
+`cordis.patch.yml` declares `accountIdEnv`, `identityIdEnv` and
+`sessionUrlEnv`; `apply(ctx)` takes no config parameter and reads
+`process.env.MAIL_SENTINEL_*` by hard-coded name. Changing the configuration
+therefore changes nothing, which defeats its purpose.
+
+Take `apply(ctx, config)` and read the variable names from `config`.
+
+## 5. The transport POSTs to the wrong URL
+
+`MAIL_SENTINEL_JMAP_SESSION_URL` is the JMAP **session resource**: you `GET` it
+to discover `apiUrl`, and you `POST` method calls to that `apiUrl` (RFC 8620
+§2). The code POSTs to the session URL. Its own comment says "POSTs to the
+account's apiUrl", which is what it should do and does not.
+
+Fetch the session once, read `apiUrl` from it, and post there.
+
+## Not in scope for this round
+
+Token refresh. The stored access token has expired, so a live JMAP call will
+return 401 even once the above is correct. `verify-mail-core-bundle.sh` does
+not make a live call, and neither should you: the profile booting is the goal.
