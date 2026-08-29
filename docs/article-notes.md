@@ -626,6 +626,68 @@ A 27B open-weights model passing the authoring benchmark removes that half of th
 argument. The split survives on cost — authoring is rare and expensive per call,
 classification constant and cheap — but it is no longer forced.
 
+## §8 — One live call found three bugs the whole apparatus had missed
+
+The benchmark's recurring lesson is that a green suite bounds what it says. The
+sharpest evidence for it turned out to be in my own code, not any model's.
+
+State before the call: **172 unit tests passing**, lint and typecheck clean,
+`verify-mail-core-bundle.sh` at **6 / 6** including a boot of the profile, and a
+reference implementation that four models had been benchmarked against.
+
+Then `mail_ping` was called once, against the real JMAP account. It failed three
+times, each on a different defect, none of which anything above could see.
+
+**1. A declaration that was inert.** `mail-ping.ts` declares
+`inject: ['tools', 'mailbox']`, and `plugin.ts` called it as a plain function.
+A module's inject list means nothing when the module is never mounted, so the
+handler failed at first use:
+
+```
+cannot get property "mailbox" without inject
+```
+
+The tree boots identically either way. The acceptance checks mount the bundle
+and start it; nothing calls the tool.
+
+**2. A house convention that the framework forbids.** Consumers reach a Cordis
+service through a proxy, and `#adapter` is a runtime brand check against the
+real instance:
+
+```
+Cannot read private member #adapter from an object whose class did not declare it
+```
+
+`private` erases at runtime, which is exactly what lets it survive a proxy —
+and every `Service` subclass in DSH itself uses `private`, never `#`. Our
+TypeScript conventions say the opposite, for good reasons that stop applying at
+this one base class. A rule that is right in general was wrong here, and only a
+call through the proxy could tell.
+
+**3. A capability nothing invoked.** `mail-auth status` reported *renews without
+a browser* while no caller reached `refreshIfDue`. The access token had expired
+that morning and the only renewal paths were a new browser authorization or
+adopting a token by hand — in an agent whose whole point is running unattended.
+
+Then it answered:
+
+```
+jmap adapter answered in 617 ms
+(push: jmap-push-subscription; custom keywords, native threads, spam headers)
+```
+
+### Why this belongs next to the benchmark
+
+Three models shipped a JMAP transport that POSTs at the session resource, and
+the acceptance script passed two of them, because it never opens a connection.
+I wrote that script, I knew what it did not cover, and I still had three defects
+of my own sitting behind the same blind spot.
+
+**The instrument was not just measuring the models badly. It was measuring me
+badly too, and I was the one holding it.** A green suite is a statement about
+the checks that ran. The only thing that speaks about the system is the system,
+doing the thing, once, for real.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
