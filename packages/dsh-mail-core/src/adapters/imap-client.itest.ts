@@ -24,6 +24,9 @@ const DOVECOT = {
   secure: false,
   user: process.env['ITEST_USER'] ?? 'itest@example.test',
   password: process.env['ITEST_PASSWORD'] ?? 'itest-secret',
+  // Both containers present a self-signed certificate on the STARTTLS
+  // upgrade. Throwaway servers holding nothing: this is what the flag is for.
+  allowInsecureTls: true,
 } as const;
 
 const JAMES_SMTP = {
@@ -32,6 +35,9 @@ const JAMES_SMTP = {
   secure: false,
   user: process.env['ITEST_USER'] ?? 'itest@example.test',
   password: process.env['ITEST_PASSWORD'] ?? 'itest-secret',
+  // Both containers present a self-signed certificate on the STARTTLS
+  // upgrade. Throwaway servers holding nothing: this is what the flag is for.
+  allowInsecureTls: true,
 } as const;
 
 /** A distinct name per run, so a failed run never poisons the next. */

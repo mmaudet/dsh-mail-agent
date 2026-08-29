@@ -13,6 +13,7 @@
 
 import { ImapFlow, type ListResponse, type FetchMessageObject } from 'imapflow';
 import { createTransport, type Transporter } from 'nodemailer';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 
 import type { MailAddress } from '../types.js';
 import type {
@@ -104,6 +105,7 @@ function hasAttachment(node: unknown): boolean {
 export class ImapFlowConnection implements ImapConnection {
   private readonly client: ImapFlow;
   private opened: string | null = null;
+  private plainListOnly = false;
 
   constructor(config: ImapClientConfig) {
     if (config.password === undefined && config.accessToken === undefined) {
@@ -130,9 +132,41 @@ export class ImapFlowConnection implements ImapConnection {
     return this.client;
   }
 
+  /**
+   * Retries a LIST-driven call with the extended arguments turned off.
+   *
+   * The account this project targets advertises `LIST-EXTENDED` and
+   * `SPECIAL-USE`, and then answers `NO LIST processing failed.` to
+   * `LIST "" "*" RETURN (SPECIAL-USE CHILDREN SUBSCRIBED)`. A plain
+   * `LIST "" "*"` against the same server returns all 418 mailboxes.
+   *
+   * A capability is an advertisement, not a guarantee. `mailboxOpen` lists
+   * before it selects, so this covers opening too. The flags are set on the
+   * connection and stay set: a server that failed once will fail again, and
+   * paying a round trip per call to rediscover that is waste.
+   */
+  private async withPlainListFallback<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (this.plainListOnly || !/list processing failed|command failed/i.test(message)) {
+        throw err;
+      }
+      this.plainListOnly = true;
+      // Not in the published types: escape hatches the library documents in
+      // its own source for exactly this class of server.
+      const escape = this.client as unknown as Record<string, boolean>;
+      escape['skipListAuxArgs'] = true;
+      escape['skipListSubscribedArg'] = true;
+      escape['skipListStatusArgs'] = true;
+      return run();
+    }
+  }
+
   async open(path: string): Promise<MailboxStatus> {
     const client = await this.ready();
-    const box = await client.mailboxOpen(path);
+    const box = await this.withPlainListFallback(() => client.mailboxOpen(path));
     this.opened = path;
     return {
       uidValidity: Number(box.uidValidity),
@@ -142,7 +176,7 @@ export class ImapFlowConnection implements ImapConnection {
 
   async listMailboxes(): Promise<readonly ImapMailbox[]> {
     const client = await this.ready();
-    const boxes = await client.list();
+    const boxes = await this.withPlainListFallback(() => client.list());
     const out: ImapMailbox[] = [];
     for (const box of boxes as readonly ListResponse[]) {
       // STATUS is a second round trip per mailbox. On an account with several
@@ -332,10 +366,11 @@ export class NodemailerSender implements SmtpSender {
   }
 
   async send(message: OutgoingMessage): Promise<{ messageId: string; raw: string }> {
-    // `SentMessageInfo` is `any` in the published types, so the result crosses
-    // into this module as `unknown` and is read through a guard like any other
-    // external value.
-    const sent: unknown = await this.transport.sendMail({
+    // Composed here rather than by sendMail, because an SMTP transport reports
+    // only an envelope and a Message-ID — never the bytes. The adapter writes
+    // a copy of every sent message to Sent, so it needs the message that was
+    // actually submitted, not one re-rendered from the same fields afterwards.
+    const composed = await new MailComposer({
       from: formatAddress(this.from),
       to: message.to.map(formatAddress),
       cc: message.cc.map(formatAddress),
@@ -343,26 +378,30 @@ export class NodemailerSender implements SmtpSender {
       text: message.bodyText,
       ...(message.inReplyTo === null ? {} : { inReplyTo: message.inReplyTo }),
       ...(message.references.length === 0 ? {} : { references: [...message.references] }),
-    });
+    })
+      .compile()
+      .build();
 
+    const raw = composed.toString('utf8');
+
+    // `SentMessageInfo` is `any` in the published types, so the result crosses
+    // into this module as `unknown` and is read through a guard.
+    const sent: unknown = await this.transport.sendMail({ raw: composed });
     if (typeof sent !== 'object' || sent === null) {
       throw new TypeError('SMTP submission returned no result');
     }
-    const info = sent as { messageId?: unknown; message?: unknown };
+    const info = sent as { messageId?: unknown };
 
-    // The adapter writes the raw bytes back to Sent, so it needs them exactly
-    // as submitted rather than re-rendered from the fields.
-    const raw =
-      typeof info.message === 'string'
-        ? info.message
-        : Buffer.isBuffer(info.message)
-          ? info.message.toString('utf8')
-          : '';
+    // The composed bytes carry the Message-ID; the server's echo of it is not
+    // guaranteed to come back, so it is read from what was sent.
+    const fromRaw = /^message-id:\s*(<[^>]+>)/im.exec(raw);
+    const messageId =
+      typeof info.messageId === 'string' && info.messageId.length > 0
+        ? info.messageId
+        : (fromRaw?.[1] ?? null);
+    if (messageId === null) throw new TypeError('SMTP submission produced no Message-ID');
 
-    if (typeof info.messageId !== 'string' || info.messageId.length === 0) {
-      throw new TypeError('SMTP submission returned no Message-ID');
-    }
-    return { messageId: info.messageId, raw };
+    return { messageId, raw };
   }
 
   close(): void {
