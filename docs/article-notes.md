@@ -770,6 +770,99 @@ what it should. The model removed the branch entirely — a literal and reasonab
 reading — and left a field in the contract that nothing read. A correction brief
 that only forbids produces a gap, not a fix.
 
+## §10 — Le premier vrai chiffre, et l'écart avec le corpus
+
+Phase 2's output is a dry run over a real mailbox: 100 messages classified,
+nothing written. It produced one number and four defects.
+
+### 43%, where the corpus said 71%
+
+The cascade settles 43% of real mail without a model call. The synthetic corpus
+— fourteen cases, each written to exercise one node — says ten of fourteen.
+
+**A corpus built to cover the nodes has one case per node by construction. A
+mailbox has whatever it has.** Any cost projection built on the corpus
+overstates efficiency by two thirds, and only a real run says so.
+
+It is a floor, not a verdict: thread continuity and learned patterns, the two
+nodes designed to absorb recurring traffic, cannot fire yet because nothing
+supplies them. The honest claim is *43% before the nodes that should grow*.
+
+### Two nodes had never run at all
+
+`capabilities.spamHeaders` reported `true`; every message arrived with none.
+JMAP returns only the properties a client asks for, and the adapter asked for a
+fixed list naming no header, while the extractor scanned for keys that could
+never appear. **Nodes 2 and 5 were unreachable from the day they were written**,
+under a green suite the whole time.
+
+### The specification named the wrong convention
+
+PRD section 4.2 has the prefilter consume `x-spam-*`. The target server emits
+none of it — James stamps `org.apache.james.rspamd.status`. That is the fourth
+time in this project a specification held and the deployment did not, after
+`LIST-EXTENDED`, `Email/queryChanges`, and `limit: 0`.
+
+### And the threshold was a constant where the server states its own
+
+`JUNK_SCORE = 10`, taken from rspamd's documentation. The server says
+`requiredScore=15.0` in every message. A message scoring 12 is junk under the
+constant and clean under the server's own judgement — silently, on the one node
+with no review path.
+
+**The general lesson is the one worth publishing: a default copied from
+documentation is an assumption about somebody else's deployment.** When the
+system tells you its own threshold, reading it is not a refinement, it is the
+difference between a correct answer and a confident wrong one.
+
+### The catch-all nobody would have seen
+
+39 of 100 came back `newsletter-tech`, because the sub-category fallback files
+anything with an unsubscribe link and no stronger signal there — press reviews,
+politics, a parish bulletin. And node 4 settles at confidence 1, so node 7
+cannot degrade it and the model never sees it.
+
+Same shape as the node 5 finding a round earlier: **a rule with more authority
+than its evidence supports.** Twice now the fix has been to take authority away
+rather than sharpen the heuristic, and that is starting to look like the general
+move rather than a local one.
+
+### 43% was not efficiency, it was an unreviewed guess
+
+Removing the catch-all dropped the free rate from 43% to 10% on the same 100
+messages. The row that justifies it: **`important` doubled, from 12 to 24.**
+
+Twelve messages the owner is expected to act on were being filed as technology
+newsletters by a default nobody had looked at — and in Phase 3 they would have
+been moved out of the inbox.
+
+**A cheap wrong answer is not a saving.** It is the most expensive kind, because
+it is the one nobody reviews. Any cascade-style architecture that reports a
+"settled without the expensive path" metric should be read with that in mind:
+the metric counts decisions, not correct ones, and the two diverge exactly where
+a rule is guessing.
+
+The efficiency is meant to come back through learned patterns, not through
+restoring the guess. The difference is not the number — it is that a learned
+pattern is evidence about *this* mailbox and a default is a guess about
+somebody's.
+
+### Three instruments, three sets of findings
+
+The integration suite, the live `mail_ping`, and now the dry run. Each found
+defects in code that was already green, and each found a class the previous one
+could not:
+
+| Instrument | Finds |
+|---|---|
+| unit tests | reasoning, against a fake |
+| integration suite | what the protocol actually does |
+| a live call | what the deployment actually does |
+| a dry run over real data | how often any of it happens |
+
+The last row is the one most projects never build, and it is the only one that
+produced a number anybody would put in a business case.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every

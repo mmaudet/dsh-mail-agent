@@ -459,3 +459,52 @@ describe('currentCursor', () => {
     await expect(adapter.currentCursor('INBOX')).rejects.toThrow(/state/);
   });
 });
+
+describe('headers the cascade reasons about', () => {
+  it('reads x-spam-* and Authentication-Results out of the headers list', async () => {
+    // JMAP returns only the properties asked for, and the ones the cascade
+    // needs cannot be named in advance: asking for a fixed list is how nodes 2
+    // and 5 came to see nothing at all on a live account.
+    const transport = transportOf({
+      list: [
+        {
+          id: 'e1',
+          threadId: 't1',
+          mailboxIds: { 'mb-inbox': true },
+          keywords: {},
+          messageId: ['abc@example.org'],
+          inReplyTo: [],
+          references: [],
+          from: [{ name: 'A', email: 'a@example.org' }],
+          to: [{ name: null, email: 'me@example.org' }],
+          cc: [],
+          subject: 'S',
+          receivedAt: '2026-08-29T10:00:00Z',
+          sentAt: '2026-08-29T09:59:00Z',
+          preview: 'p',
+          hasAttachment: false,
+          headers: [
+            { name: 'X-Spam-Score', value: ' 14.8 ' },
+            { name: 'Authentication-Results', value: 'mx; dmarc=fail (p=reject)' },
+            { name: 'Subject', value: 'not a spam header' },
+          ],
+        },
+      ],
+    }, MAILBOXES);
+
+    const [message] = await adapterWith(transport).getMessages(['e1']);
+    expect(message?.spamHeaders).toStrictEqual({
+      'x-spam-score': '14.8',
+      'authentication-results': 'mx; dmarc=fail (p=reject)',
+    });
+  });
+
+  it('asks the server for the headers list', async () => {
+    const transport = transportOf({ list: [] }, MAILBOXES);
+    await adapterWith(transport).getMessages(['e1']);
+
+    const properties = (transport.sent[0]?.methodCalls[0]?.[1] as { properties?: string[] })
+      .properties;
+    expect(properties).toContain('headers');
+  });
+});

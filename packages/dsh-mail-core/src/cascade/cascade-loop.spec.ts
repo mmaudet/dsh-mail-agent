@@ -435,3 +435,153 @@ describe('a corporate domain excludes the bulk categories without settling one',
     expect(trace.category).toBe('important');
   });
 });
+
+describe('authentication is read as servers actually write it', () => {
+  function withHeaders(id: string, spamHeaders: Record<string, string>): MailMessage {
+    return msg({
+      id,
+      from: [{ name: 'PayPal', email: 'service@paypa1-secure.example' }],
+      subject: 'Votre compte',
+      spamHeaders,
+    });
+  }
+
+  it('reads a hard failure out of an RFC 8601 Authentication-Results', async () => {
+    // The real shape, qualifiers and all. An equality test against `fail`
+    // matches none of this, which is how a node that passes on a fixture reads
+    // nothing at all on the wire.
+    const message = withHeaders('r12', {
+      'authentication-results':
+        'mx.example.com; dmarc=fail (p=reject dis=none) header.from=paypal.com; dkim=none',
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('brand-spoofing');
+  });
+
+  it('does not read softfail, neutral or none as forgery', async () => {
+    // A forwarder breaks SPF routinely. Treating that as an impersonation is
+    // how a mailing list ends up in Junk.
+    for (const results of [
+      'mx.example.com; spf=softfail smtp.mailfrom=example.com',
+      'mx.example.com; dmarc=none; dkim=neutral',
+      'mx.example.com; spf=temperror',
+    ]) {
+      const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+      const trace = await runCascade(withHeaders('r13', { 'authentication-results': results }), {
+        context: CONTEXT,
+        model,
+      });
+      expect(trace.decidedBy).not.toBe('brand-spoofing');
+    }
+  });
+
+  it('still reads a filter that stamps one verdict per header', async () => {
+    const trace = await runCascade(withHeaders('r14', { 'x-spam-dmarc': 'fail (p=reject)' }), {
+      context: CONTEXT,
+      model: FORBIDDEN_MODEL,
+    });
+    expect(trace.decidedBy).toBe('brand-spoofing');
+  });
+
+  it('does not read a per-header softfail as forgery either', async () => {
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const trace = await runCascade(withHeaders('r15', { 'x-spam-spf': 'softfail' }), {
+      context: CONTEXT,
+      model,
+    });
+    expect(trace.decidedBy).not.toBe('brand-spoofing');
+  });
+});
+
+describe('the prefilter reads the filter the server actually runs', () => {
+  it('reads James rspamd status, and the threshold it states', async () => {
+    // The account this project targets stamps this, and nothing matching
+    // `x-spam-score` at all. The PRD assumes the other convention.
+    const message = msg({
+      id: 'r16',
+      subject: 'Vous avez gagné',
+      spamHeaders: {
+        'org.apache.james.rspamd.flag': 'YES',
+        'org.apache.james.rspamd.status': 'Yes, actions=reject score=22.4 requiredScore=15.0',
+      },
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('spam-prefilter');
+    expect(trace.category).toBe('spam-certain');
+  });
+
+  it('honours a threshold above the documented default', async () => {
+    // 12 is junk under rspamd's documented 10 and clean under this server's
+    // stated 15. Hardcoding the default would junk it.
+    const message = msg({
+      id: 'r17',
+      spamHeaders: {
+        'org.apache.james.rspamd.status': 'No, actions=no action score=12.0 requiredScore=15.0',
+      },
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('spam-prefilter');
+  });
+
+  it('falls back to the documented default when the filter states none', async () => {
+    const message = msg({ id: 'r18', spamHeaders: { 'x-spam-score': '11.2' } });
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('spam-prefilter');
+  });
+
+  it('lets a negative score through, which is what most mail carries', async () => {
+    const message = msg({
+      id: 'r19',
+      spamHeaders: {
+        'org.apache.james.rspamd.status': 'No, actions=no action score=-1.307155 requiredScore=15.0',
+      },
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('spam-prefilter');
+  });
+});
+
+describe('bulk mail with no sub-category signal is not guessed at', () => {
+  it('declines rather than defaulting a mailing list to a tech newsletter', async () => {
+    // Measured on the target inbox: 40 of 42 bulk messages matched no
+    // sub-category signal, and the default was filing a mailing list, a
+    // support case and a traffic-fine notice as a technology newsletter — at
+    // confidence 1, which node 7 cannot degrade and the model never reviews.
+    const message = msg({
+      id: 'r20',
+      from: [{ name: 'License Review', email: 'license-review@lists.example' }],
+      subject: 'Re: [License-review] For Approval: OpenMDW License Agreement',
+      listUnsubscribe: ['https://lists.example/unsub'],
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).toBe('llm');
+    expect(trace.category).toBe('standard');
+  });
+
+  it('still settles bulk that says what it is', async () => {
+    for (const [subject, expected] of [
+      ['Weekly digest #42', 'newsletter-tech'],
+      ['-40% ce week-end', 'newsletter-promo'],
+      ['Alerte sur votre dépôt', 'newsletter-notification'],
+    ] as const) {
+      const message = msg({
+        id: `r21-${expected}`,
+        from: [{ name: 'Bulk', email: 'hello@bulk.example' }],
+        subject,
+        listUnsubscribe: ['https://bulk.example/u'],
+      });
+
+      const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+      expect(trace.decidedBy).toBe('static-rule');
+      expect(trace.category).toBe(expected);
+    }
+  });
+});

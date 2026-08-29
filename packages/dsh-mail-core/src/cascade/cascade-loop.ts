@@ -39,9 +39,12 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * A spam-filter score at or past this is settled as junk, on the prefilter
- * alone. rspamd's default junk threshold is 10; the corpus leans on it with a
+ * Fallback threshold, used only when the filter does not state its own.
+ *
+ * rspamd's documented default is 10, and the corpus leans on it with a
  * clear-cut case at 14.8 and a grey-zone case at 5.2 that must pass through.
+ * A deployment that reports `requiredScore` overrides this — the account this
+ * project targets answers 15.
  */
 const JUNK_SCORE = 10;
 
@@ -255,8 +258,8 @@ function threadContinuity(context: CascadeContext): NodeVerdict | null {
 
 /** Node 2: junk settles on the spam-filter score; clean and grey pass through. */
 function spamPrefilter(message: MailMessage): NodeVerdict | null {
-  const score = readSpamScore(message.spamHeaders);
-  if (score !== null && score >= JUNK_SCORE) {
+  const verdict = readSpamVerdict(message.spamHeaders);
+  if (verdict !== null && verdict.score >= verdict.threshold) {
     return {
       category: 'spam-certain',
       confidence: 1,
@@ -312,8 +315,18 @@ function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict
     return { category: 'transactional', confidence: 1, rationale: 'transactional message (code or receipt); never digested' };
   }
   if (message.listUnsubscribe.length > 0) {
+    // `List-Unsubscribe` proves the message is bulk. It says nothing about
+    // which kind, and the vocabulary has no generic bulk category — so when no
+    // sub-category signal matches, this node declines rather than guessing.
+    //
+    // Measured on the target inbox: 40 of 42 bulk messages matched nothing,
+    // and the default was filing a mailing list, an OVH support case and a
+    // traffic-fine notice as a technology newsletter. At confidence 1, which
+    // node 7 cannot degrade and the model never reviews.
     const category = newsletterSubcategory(message);
-    return { category, confidence: 1, rationale: NEWSLETTER_RATIONALE[category] };
+    if (category !== null) {
+      return { category, confidence: 1, rationale: NEWSLETTER_RATIONALE[category] };
+    }
   }
   return null;
 }
@@ -404,22 +417,65 @@ function normalizeWords(text: string): string[] {
     .filter((w) => w.length > 0);
 }
 
-/** The numeric spam-filter score, or `null` when absent or unparseable. */
-function readSpamScore(headers: Readonly<Record<string, string>>): number | null {
+/**
+ * What the spam filter concluded, and the threshold it judged against.
+ *
+ * Two shapes, because the PRD assumes one the target account does not use.
+ * James stamps `org.apache.james.rspamd.status`:
+ *
+ *     No, actions=no action score=-1.307155 requiredScore=15.0
+ *
+ * `requiredScore` is the filter's own threshold, and reading it beats
+ * hardcoding one: this deployment answers 15 where rspamd's documented default
+ * is 10, so a constant would have called clean mail junk for five points.
+ */
+function readSpamVerdict(
+  headers: Readonly<Record<string, string>>,
+): { score: number; threshold: number } | null {
+  const status = headers['org.apache.james.rspamd.status'];
+  if (status !== undefined) {
+    const score = Number.parseFloat(/score=(-?[\d.]+)/.exec(status)?.[1] ?? '');
+    const required = Number.parseFloat(/requiredScore=([\d.]+)/.exec(status)?.[1] ?? '');
+    if (Number.isFinite(score)) {
+      return { score, threshold: Number.isFinite(required) ? required : JUNK_SCORE };
+    }
+  }
+
   const raw = headers['x-spam-score'];
   if (raw === undefined) return null;
   const score = Number.parseFloat(raw);
-  return Number.isFinite(score) ? score : null;
+  return Number.isFinite(score) ? { score, threshold: JUNK_SCORE } : null;
 }
 
 /** True when any of DMARC, DKIM or SPF reports a hard failure. */
 function authenticationFailed(headers: Readonly<Record<string, string>>): boolean {
+  // RFC 8601: `Authentication-Results: mx.example; dmarc=fail (p=reject)
+  // header.from=x; spf=softfail smtp.mailfrom=y`. The method names carry
+  // qualifiers and trailing properties, so an equality test against `fail`
+  // sees none of them — which is how a rule that passes on a fixture reads
+  // nothing at all on the wire.
+  const results = headers['authentication-results'];
+  if (results !== undefined && HARD_FAIL.test(results)) return true;
+
+  // Some filters stamp their own verdict instead, one method per header.
   for (const name of ['x-spam-dmarc', 'x-spam-dkim', 'x-spam-spf']) {
-    const value = headers[name];
-    if (value !== undefined && value.toLowerCase() === 'fail') return true;
+    const value = headers[name]?.toLowerCase();
+    // `softfail` and `permerror` are not assertions of forgery, and treating
+    // them as one is how legitimate mail behind a forwarder gets junked.
+    if (value !== undefined && /^fail\b/.test(value)) return true;
   }
   return false;
 }
+
+/**
+ * A hard authentication failure in an RFC 8601 result string.
+ *
+ * `dmarc=fail`, `dkim=fail`, `spf=fail` only. `softfail`, `neutral`, `none`,
+ * `temperror` and `permerror` all say something other than "this is forged",
+ * and the boundary between them is the difference between catching a spoof and
+ * junking a mailing list.
+ */
+const HARD_FAIL = /\b(?:dmarc|dkim|spf)\s*=\s*fail\b/i;
 
 /**
  * Whether the sender is on a domain the owner has declared corporate.
@@ -451,18 +507,32 @@ function hasAnyMarker(subject: string, markers: readonly string[]): boolean {
 }
 
 /**
- * Which newsletter sub-category a `List-Unsubscribe` mail belongs to.
+ * Which newsletter sub-category a `List-Unsubscribe` mail belongs to, or
+ * `null` when nothing says.
  *
  * The local part of the sender is the strongest signal (a `promos@` or
- * `notifications@` address); the subject markers are a fallback for senders
- * that use a plain local part. Whatever has an unsubscribe link and no
- * stronger signal is filed as the technology digest.
+ * `notifications@` address); the subject markers cover senders with a plain
+ * local part. There is deliberately no default: which kind of bulk a message
+ * is, is a judgement about its content, and that is what node 6 exists for.
  */
-function newsletterSubcategory(message: MailMessage): 'newsletter-tech' | 'newsletter-promo' | 'newsletter-notification' {
+function newsletterSubcategory(
+  message: MailMessage,
+): 'newsletter-tech' | 'newsletter-promo' | 'newsletter-notification' | null {
   const from = firstFrom(message);
   const local = from !== null ? localPartOf(from.email.toLowerCase()) : '';
   const subject = message.subject.toLowerCase();
   if (local.includes('promo') || hasAnyMarker(subject, PROMO_MARKERS)) return 'newsletter-promo';
   if (local.includes('notif') || hasAnyMarker(subject, MACHINE_MARKERS)) return 'newsletter-notification';
-  return 'newsletter-tech';
+  if (local.includes('news') || hasAnyMarker(subject, TECH_MARKERS)) return 'newsletter-tech';
+  return null;
 }
+
+/** Signals that a bulk message really is a technology digest. */
+const TECH_MARKERS: readonly string[] = [
+  'digest',
+  'weekly',
+  'hebdo',
+  'newsletter',
+  'release',
+  'changelog',
+];
