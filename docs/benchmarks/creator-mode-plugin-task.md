@@ -37,6 +37,7 @@ naming a module with no `apply`.
 | 4 | `nvidia/nemotron-3-ultra-550b-a55b` | 1 | — | **VOID** — output cap of 1024 cut the write |
 | 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, pinned upstream, cap 32768 | 3 / 7 | FAIL — reported success against a different profile |
 | 6 | `nvidia/nemotron-3-ultra-550b-a55b` | 2, with defects listed | **7 / 7** | **PASS**, unaided |
+| 7 | `deepseek/deepseek-v4-pro` | 1 | 4 / 6 | FAIL — never mounted, **brief misdirected it** |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -143,7 +144,42 @@ acceptance run means the seven things were satisfied — no more. Both models
 produced the same protocol error independently, and only a human review caught
 it either time.
 
-## Three confounds, all mine
+## A fourth confound, and it invalidates part of the table
+
+The benchmark brief was cloned without adapting it. Every copy told the model
+to mount into **`mail-agent-dev`** and to build **`~/work/dsh-mail-agent`** —
+the working profile and the working repository, not the isolated clone the run
+was supposed to happen in.
+
+So the two failures that looked like the clearest model behaviour were partly
+mine:
+
+- **Nemotron run 5** was recorded as "reported success against a different
+  profile". It verified `mail-agent-dev` because the brief named
+  `mail-agent-dev`, in the same sentence that told it what to check. That
+  characterisation was unfair and is withdrawn.
+- **Every first round skipped the mounting step.** With the brief naming
+  another profile, "did not mount into its own profile" is not evidence about
+  the model.
+
+What survives: the mounting step was skipped or misdirected in every first
+round, across three models. That is still a real signal about how a stated
+step in prose fares against everything else in a long task — but it is a
+weaker claim than the table implied.
+
+The briefs are now parameterised per bench. Runs before this correction are
+comparable to each other and not to what follows.
+
+### What DeepSeek did get right
+
+Checks 1-3 pass, and its manifest work is the most thorough of the three: it
+declared the `./plugin` subpath export **and** re-exported `apply`, `name` and
+`inject` from `index.ts`, so the row resolves either way. It was also the only
+model to plan before writing — five explicit tasks, revised mid-course — and
+the only one to notice that `applyMailPing(ctx)` registers into `ctx.tools`
+while reasoning about ordering.
+
+## The earlier confounds, also mine
 
 Every Nemotron run so far measured this project's own code rather than the
 model. Recorded because the pattern is the finding.
