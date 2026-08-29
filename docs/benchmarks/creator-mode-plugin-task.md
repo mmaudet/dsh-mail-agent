@@ -34,7 +34,8 @@ naming a module with no `apply`.
 | 1 | `mistralai/mistral-small-2603` | 1 | 1 / 7 | FAIL — reported success on a profile that does not boot |
 | 2 | `mistralai/mistral-small-2603` | 2, with defects listed | 4 / 7 | FAIL — code correct, never mounted the bundle |
 | 3 | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1 | — | **VOID** — stream truncated, see below |
-| 4 | `nvidia/nemotron-3-ultra-550b-a55b` | 1 | pending | pending |
+| 4 | `nvidia/nemotron-3-ultra-550b-a55b` | 1 | — | **VOID** — output cap of 1024 cut the write |
+| 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, cap 16384 | pending | pending |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -59,6 +60,38 @@ Observation worth keeping from the voided run: before truncating, it read
 `index.ts`, `mail-service.ts`, `jmap-adapter.ts`, `mail-ping.ts`, then the
 reference plugin and its patch — the files the brief named, in order, before
 writing anything. Mistral began writing earlier.
+
+## Three confounds, all mine
+
+Every Nemotron run so far measured this project's own code rather than the
+model. Recorded because the pattern is the finding.
+
+**1. `[DONE]` required.** The adapter treated a stream ending without the
+sentinel as truncation. Nemotron's provider omits it after delivering a finish
+reason, so complete responses were discarded. Fixed: a stream that has said why
+generation stopped is complete; one that has not is still truncation.
+
+**2. A cap sized for a different job.** The per-tier output caps — 512, 1024,
+2048 — come from PRD §3.6, where they size a call that returns a category and a
+confidence. An agent writing a TypeScript module needs an order of magnitude
+more. The run died on `Output token limit reached`.
+
+The second is the more instructive, because it did not fail loudly for
+everybody. Mistral is terser and fitted under 1024 per step; Nemotron did not.
+**A cap that one model clears and another does not measures the cap.** The
+benchmark routes now use 16384 on every tier — Nemotron's own ceiling, so
+neither model is advantaged.
+
+**3. Attributing run 3 to the free tier.** Three checks supported that reading
+and it was still wrong: the paid variant failed identically. The evidence was
+consistent with a hypothesis that happened to be false, which is the ordinary
+way of being wrong with data in hand.
+
+The honest summary so far: **no run has yet measured Nemotron.** Two measured
+the adapter's stream policy, one measured an output cap. That is worth more to
+the article than a table of scores would have been, because it is the failure
+mode of every casual model comparison — the harness is a variable, and it is
+usually invisible.
 
 ## Speed, which the outcome does not capture
 
