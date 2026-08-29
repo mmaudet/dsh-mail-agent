@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-llm": "catalog:",
     "@deepseek-ai/dsh-tools": "catalog:",
     "@types/node": "catalog:",
     "@types/nodemailer": "catalog:",

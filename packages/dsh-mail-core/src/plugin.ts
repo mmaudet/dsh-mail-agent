@@ -11,6 +11,9 @@ import type { Context } from '@deepseek-ai/cordis';
 import { JmapAdapter, type JmapTransport } from './adapters/jmap-adapter.js';
 import { MailboxService } from './mail-service.js';
 import * as mailPing from './tools/mail-ping.js';
+import * as classifyEmail from './tools/classify-email.js';
+import type { ClassifyEmailOptions } from './tools/classify-email.js';
+import { createLlmClassifier } from './cascade/llm-classifier.js';
 
 /**
  * Configuration carries environment-variable *names*, never values: the
@@ -22,6 +25,26 @@ export interface MailCoreConfig {
   readonly sessionUrlEnv: string;
   /** Holds the stored token record; `accessToken` is the bearer. */
   readonly tokensEnv?: string | undefined;
+  /**
+   * The cascade's own configuration (PRD section 4.2).
+   *
+   * Absent means `classify_email` is not registered at all, rather than
+   * registered and answering `needs-review` to everything: a tool that cannot
+   * work should not be in the model's menu.
+   */
+  readonly cascade?: CascadeSettings | undefined;
+}
+
+/** What node 4 knows and which route node 6 calls (PRD sections 4.2, 3.6). */
+export interface CascadeSettings {
+  /** The mailbox owner's address. */
+  readonly owner: string;
+  readonly vipSenders?: readonly string[] | undefined;
+  readonly corporateDomains?: readonly string[] | undefined;
+  /** Registered LLM route for node 6, for example `mail-llm-economy`. */
+  readonly provider: string;
+  readonly model: string;
+  readonly confidenceThreshold?: number | undefined;
 }
 
 export const DEFAULT_TOKENS_ENV = 'MAIL_SENTINEL_JMAP_TOKENS';
@@ -142,9 +165,38 @@ export function apply(ctx: Context, config: MailCoreConfig): void {
   });
 
   ctx.plugin(MailboxService, adapter);
+  if (config.cascade !== undefined) ctx.plugin(classifyEmail, cascadeOptions(config.cascade, ctx));
   // Mounted, not called: the tool declares `inject: ['tools', 'mailbox']`, and
   // a plain call runs it against this plugin's context, which injects neither.
   // The handler then fails at first use with `cannot get property "mailbox"
   // without inject` — at call time, long after a clean boot.
   ctx.plugin(mailPing);
+}
+
+
+/**
+ * Turns the profile's cascade settings into what the tool needs.
+ *
+ * Node 6 is built here rather than inside the tool so the LLM route is
+ * resolved once at mount, and so a deployment without a gateway can pass
+ * `null` and get the static-only cascade the PRD describes.
+ */
+function cascadeOptions(settings: CascadeSettings, ctx: Context): ClassifyEmailOptions {
+  return {
+    context: {
+      owner: settings.owner,
+      vipSenders: settings.vipSenders ?? [],
+      corporateDomains: settings.corporateDomains ?? [],
+      // Both are per-message facts the caller supplies; a tool that classifies
+      // one message in isolation has neither.
+      threadCategory: null,
+      learnedPatterns: [],
+    },
+    model: createLlmClassifier({
+      llm: ctx.llm,
+      provider: settings.provider,
+      model: settings.model,
+    }),
+    confidenceThreshold: settings.confidenceThreshold,
+  };
 }
