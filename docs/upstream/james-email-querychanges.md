@@ -92,10 +92,14 @@ Same shape as the `LIST-EXTENDED` report, and the same ask: implement it, or
 make the gap discoverable, so a client can choose the other path deliberately
 instead of failing at runtime.
 
-## What is already true
+## Two smaller things the same probe turned up
 
-`currentCursor` works on both servers and is covered by the integration suite.
-It uses `Email/query` with `limit: 1` — **not `0`**, which James rejects with
-`invalidArguments` while a fake transport accepts it happily. That same zero
-limit was sitting in `#inboxCursor`, so watching the inbox would have failed on
-a real server with every unit test green. One implementation now.
+`currentCursor` reads the account's mail state from `Email/get` with no ids,
+which is what `Email/changes` counts from. It first used `Email/query` with
+`limit: 0` — rejected by James as `invalidArguments`, and accepted happily by a
+fake transport. That same zero limit was sitting in `#inboxCursor`, so watching
+the inbox would have failed on a real server with every unit test green. There
+is one implementation now, and it is the public one.
+
+Both are the same lesson as the method itself: nothing but a real call reports
+them.
