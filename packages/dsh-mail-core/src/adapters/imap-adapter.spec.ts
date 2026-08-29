@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { encodeCursor } from '../types.js';
+import { decodeCursor, encodeCursor } from '../types.js';
 import {
   ImapAdapter,
   RE_IDLE_INTERVAL_MS,
@@ -458,5 +458,41 @@ describe('watchInbox', () => {
     const idledAtDisposal = connection.idled.length;
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(connection.idled).toHaveLength(idledAtDisposal);
+  });
+});
+
+describe('currentCursor', () => {
+  it('reports the folder position from UIDVALIDITY and UIDNEXT', async () => {
+    // The cold start: `queryChanges` needs a cursor and only produces one on a
+    // change, so a quiet folder gives a first run nowhere to begin.
+    const connection = new FakeConnection({ status: { uidValidity: 7, uidNext: 11 } });
+    const adapter = adapterOf(connection);
+
+    const cursor = await adapter.currentCursor('INBOX');
+
+    // UIDNEXT is the UID the *next* message will take, so the last one that
+    // exists is the one before it. Off by one here re-reads a message on every
+    // resume, or skips one for ever.
+    expect(decodeCursor(cursor)).toEqual({ kind: 'imap', uidValidity: 7, lastUid: 10 });
+  });
+
+  it('produces a cursor queryChanges accepts and finds nothing new behind', async () => {
+    const connection = new FakeConnection({ status: { uidValidity: 7, uidNext: 11 }, uids: [] });
+    const adapter = adapterOf(connection);
+
+    const cursor = await adapter.currentCursor('INBOX');
+    await expect(adapter.queryChanges('INBOX', cursor)).resolves.toEqual([]);
+  });
+
+  it('handles an empty folder, where the next UID is the first', async () => {
+    const connection = new FakeConnection({ status: { uidValidity: 3, uidNext: 1 } });
+    const adapter = adapterOf(connection);
+
+    // Nothing has ever arrived, so there is no last UID: zero, not minus one.
+    expect(decodeCursor(await adapter.currentCursor('INBOX'))).toEqual({
+      kind: 'imap',
+      uidValidity: 3,
+      lastUid: 0,
+    });
   });
 });

@@ -174,6 +174,23 @@ export class ImapAdapter implements MailService {
    * Flag edits on messages already seen are not reported: detecting them needs
    * CONDSTORE, which this adapter does not require of a server.
    */
+  /**
+   * Where the folder stands now, from `SELECT`'s own answer.
+   *
+   * UIDNEXT is the UID the next message will be given, so the last one that
+   * exists is the one before it — and on a folder nothing has ever reached,
+   * UIDNEXT is 1 and there is no last UID at all. Getting this off by one
+   * re-reads a message on every resume, or skips one for ever.
+   */
+  async currentCursor(folder: string): Promise<string> {
+    const status = await this.#imap.open(folder);
+    return encodeCursor({
+      kind: 'imap',
+      uidValidity: status.uidValidity,
+      lastUid: Math.max(0, status.uidNext - 1),
+    });
+  }
+
   async queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]> {
     const cursor = decodeCursor(sinceCursor);
     if (cursor === null || cursor.kind !== 'imap') {

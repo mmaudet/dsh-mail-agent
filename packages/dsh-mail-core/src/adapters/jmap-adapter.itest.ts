@@ -17,6 +17,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { decodeCursor } from '../types.js';
 import { JmapAdapter, type JmapRequest, type JmapTransport } from './jmap-adapter.js';
 
 const SESSION_URL = process.env['ITEST_JMAP_SESSION'] ?? 'http://localhost:18080/jmap/session';
@@ -122,13 +123,30 @@ describe('JmapAdapter against Apache James', () => {
     await expect(adapter.queryChanges(inbox?.id ?? '', '')).rejects.toThrow(/Not a JMAP cursor/);
   });
 
-  // Found by this suite, and left failing-by-omission rather than papered over:
-  // `MailService` offers no way to obtain a *first* cursor. `queryChanges`
-  // requires one, and nothing produces one, so a cascade loop starting on a
-  // fresh mailbox has nowhere to begin. It is a Phase 2 decision — return the
-  // current contents as created, or add a method — and it is recorded in
-  // docs/adapters.md rather than settled here.
-  it.todo('starts from a cold mailbox with no stored cursor');
+  it('hands a first run a cursor the server accepts back', async () => {
+    // The cold start, against a server rather than a fake. `limit: 0` is the
+    // part a fake cannot check: a server that ignores it would answer with the
+    // folder's contents, which on a real inbox is tens of thousands of ids.
+    const folders = await adapter.listFolders();
+    const inbox = folders.find((f) => f.role === 'inbox');
+    expect(inbox).toBeDefined();
+
+    const cursor = await adapter.currentCursor(inbox?.path ?? 'INBOX');
+    expect(cursor.length).toBeGreaterThan(0);
+    expect(decodeCursor(cursor)?.kind).toBe('jmap');
+  });
+
+  it('follows the delta from that cursor and finds nothing new behind it', async () => {
+    // The round trip the fake cannot prove: a state this server minted, handed
+    // back to the call that consumes it. This is where `Email/queryChanges`
+    // answered `unknownMethod` on both the container and the production
+    // deployment — see docs/upstream/james-email-querychanges.md.
+    const folders = await adapter.listFolders();
+    const inbox = folders.find((f) => f.role === 'inbox');
+    const cursor = await adapter.currentCursor(inbox?.path ?? 'INBOX');
+
+    await expect(adapter.queryChanges(inbox?.path ?? 'INBOX', cursor)).resolves.toEqual([]);
+  });
 
   it('returns nothing rather than failing for ids that do not exist', async () => {
     const messages = await adapter.getMessages(['no-such-email-id']);

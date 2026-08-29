@@ -27,6 +27,17 @@ import {
 // ---------------------------------------------------------------------------
 
 export const JMAP_CORE = 'urn:ietf:params:jmap:core';
+
+/**
+ * How many changes one `Email/changes` may report.
+ *
+ * The server answers `hasMoreChanges` when it truncates, and the cursor each
+ * change carries points just past it, so a caller that persists the last one
+ * resumes exactly where this batch stopped. Bounded rather than looped here: a
+ * poll that has fallen a week behind should return control, not block until it
+ * has drained a mailbox.
+ */
+const MAX_CHANGES = 256;
 export const JMAP_MAIL = 'urn:ietf:params:jmap:mail';
 export const JMAP_SUBMISSION = 'urn:ietf:params:jmap:submission';
 
@@ -122,6 +133,28 @@ export class JmapAdapter implements MailService {
    * query. Consumers that need flag changes on JMAP watch the push channel,
    * which fires on any state change.
    */
+  /**
+   * Where the folder stands now, with none of its contents.
+   *
+   * `Email/get` with no ids answers with the account's mail state and nothing
+   * else — the state `Email/changes` counts from. It is account-wide, so the
+   * same cursor serves every folder; the argument is kept because the contract
+   * is per-folder and IMAP's cursor genuinely is.
+   */
+  async currentCursor(folder: string): Promise<string> {
+    void folder;
+    const response = await this.#call(
+      [JMAP_CORE, JMAP_MAIL],
+      ['Email/get', { accountId: this.#accountId, ids: [], properties: ['id'] }, 'q0'],
+    );
+
+    const state = asString(readProp(response, 'state'));
+    // Inventing a state would silently make the first poll re-read the account
+    // or skip it entirely, and neither failure announces itself.
+    if (state === null) throw new TypeError('Email/get returned no state');
+    return encodeCursor({ kind: 'jmap', sinceState: state });
+  }
+
   async queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]> {
     const cursor = decodeCursor(sinceCursor);
     if (cursor === null || cursor.kind !== 'jmap') {
@@ -132,30 +165,75 @@ export class JmapAdapter implements MailService {
     const response = await this.#call(
       [JMAP_CORE, JMAP_MAIL],
       [
-        'Email/queryChanges',
+        'Email/changes',
         {
           accountId: this.#accountId,
-          filter: { inMailbox: folderId },
-          sinceQueryState: cursor.sinceState,
+          sinceState: cursor.sinceState,
+          maxChanges: MAX_CHANGES,
         },
         'q0',
       ],
     );
 
-    const newState = asString(readProp(response, 'newQueryState'));
-    if (newState === null) throw new TypeError('Email/queryChanges returned no newQueryState');
+    const newState = asString(readProp(response, 'newState'));
+    if (newState === null) throw new TypeError('Email/changes returned no newState');
     const next = encodeCursor({ kind: 'jmap', sinceState: newState });
 
+    const created = idsOf(readProp(response, 'created'));
+    const updated = idsOf(readProp(response, 'updated'));
+    const destroyed = idsOf(readProp(response, 'destroyed'));
+
+    // `Email/changes` is account-wide: it reports what changed, not where it
+    // lives. One lookup routes the survivors to their folders.
+    const live = [...created, ...updated];
+    const mailboxes = live.length === 0 ? new Map<string, Set<string>>() : await this.#mailboxesOf(live);
+
     const changes: MailChange[] = [];
-    for (const entry of asArray(readProp(response, 'removed'))) {
-      const id = asString(entry);
-      if (id !== null) changes.push({ kind: 'destroyed', id, folder, cursor: next });
+    for (const id of destroyed) {
+      // A destroyed message has no mailboxIds left to read, so it cannot be
+      // attributed to a folder. It is reported to the caller that asked,
+      // which is the one holding the id and able to recognise it.
+      changes.push({ kind: 'destroyed', id, folder, cursor: next });
     }
-    for (const entry of asArray(readProp(response, 'added'))) {
-      const id = asString(readProp(entry, 'id'));
-      if (id !== null) changes.push({ kind: 'created', id, folder, cursor: next });
+    for (const id of created) {
+      if (mailboxes.get(id)?.has(folderId) === true) {
+        changes.push({ kind: 'created', id, folder, cursor: next });
+      }
+    }
+    for (const id of updated) {
+      if (mailboxes.get(id)?.has(folderId) === true) {
+        // Flag edits arrive here. `Email/queryChanges`, which the PRD names,
+        // cannot report them at all: it tracks membership of a query, and a
+        // keyword change does not move a message in or out of one.
+        changes.push({ kind: 'updated', id, folder, cursor: next });
+      }
     }
     return changes;
+  }
+
+  /** Which mailboxes each of these messages is in, in one round trip. */
+  async #mailboxesOf(ids: readonly string[]): Promise<Map<string, Set<string>>> {
+    const response = await this.#call(
+      [JMAP_CORE, JMAP_MAIL],
+      [
+        'Email/get',
+        { accountId: this.#accountId, ids: [...ids], properties: ['id', 'mailboxIds'] },
+        'q0',
+      ],
+    );
+
+    const out = new Map<string, Set<string>>();
+    for (const entry of asArray(readProp(response, 'list'))) {
+      const id = asString(readProp(entry, 'id'));
+      if (id === null) continue;
+      const map = readProp(entry, 'mailboxIds');
+      const folders = new Set<string>();
+      if (typeof map === 'object' && map !== null) {
+        for (const key of Object.keys(map)) folders.add(key);
+      }
+      out.set(id, folders);
+    }
+    return out;
   }
 
   async getMessages(ids: string[]): Promise<MailMessage[]> {
@@ -331,19 +409,15 @@ export class JmapAdapter implements MailService {
     return new Map([...this.#folderIds].map(([path, id]) => [id, path]));
   }
 
-  async #inboxCursor(): Promise<string> {
-    const folderId = await this.#folderId('INBOX');
-    const response = await this.#call(
-      [JMAP_CORE, JMAP_MAIL],
-      [
-        'Email/query',
-        { accountId: this.#accountId, filter: { inMailbox: folderId }, limit: 0 },
-        'c0',
-      ],
-    );
-    const state = asString(readProp(response, 'queryState'));
-    if (state === null) throw new TypeError('Email/query returned no queryState');
-    return encodeCursor({ kind: 'jmap', sinceState: state });
+  /**
+   * The inbox position `watchInbox` starts from.
+   *
+   * Was a second copy of the same query, carrying the same `limit: 0` James
+   * rejects — so watching the inbox would have failed on a real server while
+   * every unit test passed. One implementation now, and the public one.
+   */
+  #inboxCursor(): Promise<string> {
+    return this.currentCursor('INBOX');
   }
 }
 
@@ -539,6 +613,16 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asArray(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+/** The ids in a `created`/`updated`/`destroyed` array, dropping anything else. */
+function idsOf(value: unknown): string[] {
+  const out: string[] = [];
+  for (const entry of asArray(value)) {
+    const id = asString(entry);
+    if (id !== null) out.push(id);
+  }
+  return out;
 }
 
 function asString(value: unknown): string | null {
