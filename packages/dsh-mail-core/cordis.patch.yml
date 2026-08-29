@@ -1,0 +1,11 @@
+# Mount the mail-core bundle as the mail service.
+# Credentials are addressed by environment-variable name; the harness resolves them.
+# Do not print, log, or echo any credential value.
+
+- insert:
+    - id: mail.service
+      name: '@dsh-mail-agent/mail-core/plugin'
+      config:
+        accountIdEnv: MAIL_SENTINEL_JMAP_ACCOUNT_ID
+        identityIdEnv: MAIL_SENTINEL_JMAP_IDENTITY_ID
+        sessionUrlEnv: MAIL_SENTINEL_JMAP_SESSION_URL
