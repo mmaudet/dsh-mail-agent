@@ -66,6 +66,7 @@ const USAGE = [
   '  begin               print the URL to open in a browser',
   '  complete <pasted>   exchange the code that came back',
   '  adopt               adopt a refresh token, read from stdin',
+  '  refresh             renew the access token, no browser',
   '  status              what is stored, without disclosing it',
   '',
   'Configuration comes from $DSH_HOME/.env:',
@@ -82,7 +83,7 @@ export async function run(argv: readonly string[], io: CliEnvironment): Promise<
     for (const line of USAGE) io.log(line);
     return 0;
   }
-  if (!['begin', 'complete', 'adopt', 'status'].includes(command)) {
+  if (!['begin', 'complete', 'adopt', 'refresh', 'status'].includes(command)) {
     for (const line of USAGE) io.log(line);
     return 2;
   }
@@ -141,6 +142,20 @@ export async function run(argv: readonly string[], io: CliEnvironment): Promise<
       }
       const tokens = await bootstrap.adoptRefreshToken(token);
       io.log(`Adopted. Access token valid until ${tokens.expiresAt.toISOString()}.`);
+      return 0;
+    }
+
+    case 'refresh': {
+      // The capability existed and nothing invoked it: `status` has been
+      // reporting "renews without a browser" while the only paths that renew
+      // were a fresh authorization or adopting a token by hand.
+      const tokens = await bootstrap.refreshIfDue();
+      if (tokens === null) {
+        io.log('Nothing to renew: no stored token, or no refresh token to use.');
+        io.log('Run `mail-auth begin`.');
+        return 1;
+      }
+      io.log(`Access token valid until ${tokens.expiresAt.toISOString()}.`);
       return 0;
     }
 
