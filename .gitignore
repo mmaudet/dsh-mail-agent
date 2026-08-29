@@ -36,3 +36,4 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+test/integration/james-conf/
