@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { encodeCursor } from '../types.js';
+import { decodeCursor, encodeCursor } from '../types.js';
 import {
   JmapAdapter,
   type JmapPushChannel,
@@ -389,5 +389,45 @@ describe('watchInbox', () => {
       push.fire();
     }).not.toThrow();
     await subscription[Symbol.asyncDispose]();
+  });
+});
+
+describe('currentCursor', () => {
+  it('reports the query state without asking for any message', async () => {
+    // The cold start, named: `queryChanges` needs a cursor, and every cursor
+    // it produces rides on a `MailChange`, so a quiet folder hands back
+    // nothing to resume from. A first run begins here.
+    // The mailbox list comes first: a folder is addressed by path, and the
+    // adapter resolves it to an id before it can filter on it.
+    const transport = transportOf(MAILBOXES, { queryState: 'qs-42', ids: [] });
+    const adapter = adapterWith(transport);
+
+    const cursor = await adapter.currentCursor('INBOX');
+
+    expect(decodeCursor(cursor)).toEqual({ kind: 'jmap', sinceState: 'qs-42' });
+    const [call] = transport.sent[1]?.methodCalls ?? [];
+    expect(call?.[0]).toBe('Email/query');
+    expect(call?.[1]).toMatchObject({ filter: { inMailbox: 'mb-inbox' } });
+    // Asking for the state must not drag the folder's contents across the
+    // wire: on a real inbox that is tens of thousands of messages. Not zero,
+    // which James rejects as `invalidArguments` while a fake accepts it — a
+    // difference only the integration suite could report.
+    expect((call?.[1] as { limit?: number }).limit).toBe(1);
+  });
+
+  it('produces a cursor queryChanges accepts', async () => {
+    const cursor = await adapterWith(transportOf(MAILBOXES, { queryState: 'qs-7' })).currentCursor(
+      'INBOX',
+    );
+    const adapter = adapterWith(
+      transportOf(MAILBOXES, { newQueryState: 'qs-7', added: [], removed: [] }),
+    );
+
+    await expect(adapter.queryChanges('INBOX', cursor)).resolves.toEqual([]);
+  });
+
+  it('refuses to invent a state the server did not report', async () => {
+    const adapter = adapterWith(transportOf(MAILBOXES, { ids: [] }));
+    await expect(adapter.currentCursor('INBOX')).rejects.toThrow(/queryState/);
   });
 });

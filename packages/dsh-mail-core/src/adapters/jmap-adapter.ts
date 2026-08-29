@@ -122,6 +122,32 @@ export class JmapAdapter implements MailService {
    * query. Consumers that need flag changes on JMAP watch the push channel,
    * which fires on any state change.
    */
+  /**
+   * Where the folder stands now, with none of its contents.
+   *
+   * `Email/query` carries the state in its answer, so the smallest query is
+   * enough. `limit: 1`, not 0: James rejects a zero limit with
+   * `invalidArguments`, while a fake transport accepts it happily. One id
+   * across the wire instead of a whole inbox is the point either way.
+   */
+  async currentCursor(folder: string): Promise<string> {
+    const folderId = await this.#folderId(folder);
+    const response = await this.#call(
+      [JMAP_CORE, JMAP_MAIL],
+      [
+        'Email/query',
+        { accountId: this.#accountId, filter: { inMailbox: folderId }, limit: 1 },
+        'q0',
+      ],
+    );
+
+    const state = asString(readProp(response, 'queryState'));
+    // Inventing a state would silently make the first poll re-read the folder
+    // or skip it entirely, and neither failure announces itself.
+    if (state === null) throw new TypeError('Email/query returned no queryState');
+    return encodeCursor({ kind: 'jmap', sinceState: state });
+  }
+
   async queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]> {
     const cursor = decodeCursor(sinceCursor);
     if (cursor === null || cursor.kind !== 'jmap') {
@@ -331,19 +357,15 @@ export class JmapAdapter implements MailService {
     return new Map([...this.#folderIds].map(([path, id]) => [id, path]));
   }
 
-  async #inboxCursor(): Promise<string> {
-    const folderId = await this.#folderId('INBOX');
-    const response = await this.#call(
-      [JMAP_CORE, JMAP_MAIL],
-      [
-        'Email/query',
-        { accountId: this.#accountId, filter: { inMailbox: folderId }, limit: 0 },
-        'c0',
-      ],
-    );
-    const state = asString(readProp(response, 'queryState'));
-    if (state === null) throw new TypeError('Email/query returned no queryState');
-    return encodeCursor({ kind: 'jmap', sinceState: state });
+  /**
+   * The inbox position `watchInbox` starts from.
+   *
+   * Was a second copy of the same query, carrying the same `limit: 0` James
+   * rejects — so watching the inbox would have failed on a real server while
+   * every unit test passed. One implementation now, and the public one.
+   */
+  #inboxCursor(): Promise<string> {
+    return this.currentCursor('INBOX');
   }
 }
 

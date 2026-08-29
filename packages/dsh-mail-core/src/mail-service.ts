@@ -34,6 +34,20 @@ declare module '@deepseek-ai/cordis' {
  */
 export interface MailService {
   listFolders(): Promise<MailFolder[]>;
+  /**
+   * The folder's cursor as it stands now, without its contents.
+   *
+   * An addition to the contract PRD section 3.2 states verbatim, and the
+   * reason is a gap rather than a preference: `queryChanges` requires a cursor
+   * and every cursor it produces rides on a `MailChange`, so a folder that has
+   * not changed hands back nothing to resume from. An agent meeting a mailbox
+   * it has never seen had nowhere to begin.
+   *
+   * This is the cold start, named. It reports where the folder is so a first
+   * run can start from now, leaving the history to a deliberate backfill
+   * rather than classifying a whole mailbox by accident.
+   */
+  currentCursor(folder: string): Promise<string>;
   queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]>;
   getMessages(ids: string[]): Promise<MailMessage[]>;
   watchInbox(handler: (evt: MailChange) => void): AsyncDisposable;
@@ -114,6 +128,10 @@ export class MailboxService extends Service implements MailService {
 
   listFolders(): Promise<MailFolder[]> {
     return this.adapter.listFolders();
+  }
+
+  currentCursor(folder: string): Promise<string> {
+    return this.adapter.currentCursor(folder);
   }
 
   queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]> {

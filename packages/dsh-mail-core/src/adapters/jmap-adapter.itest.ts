@@ -17,6 +17,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { decodeCursor } from '../types.js';
 import { JmapAdapter, type JmapRequest, type JmapTransport } from './jmap-adapter.js';
 
 const SESSION_URL = process.env['ITEST_JMAP_SESSION'] ?? 'http://localhost:18080/jmap/session';
@@ -122,13 +123,27 @@ describe('JmapAdapter against Apache James', () => {
     await expect(adapter.queryChanges(inbox?.id ?? '', '')).rejects.toThrow(/Not a JMAP cursor/);
   });
 
-  // Found by this suite, and left failing-by-omission rather than papered over:
-  // `MailService` offers no way to obtain a *first* cursor. `queryChanges`
-  // requires one, and nothing produces one, so a cascade loop starting on a
-  // fresh mailbox has nowhere to begin. It is a Phase 2 decision — return the
-  // current contents as created, or add a method — and it is recorded in
-  // docs/adapters.md rather than settled here.
-  it.todo('starts from a cold mailbox with no stored cursor');
+  it('hands a first run a cursor the server accepts back', async () => {
+    // The cold start, against a server rather than a fake. `limit: 0` is the
+    // part a fake cannot check: a server that ignores it would answer with the
+    // folder's contents, which on a real inbox is tens of thousands of ids.
+    const folders = await adapter.listFolders();
+    const inbox = folders.find((f) => f.role === 'inbox');
+    expect(inbox).toBeDefined();
+
+    const cursor = await adapter.currentCursor(inbox?.path ?? 'INBOX');
+    expect(cursor.length).toBeGreaterThan(0);
+    expect(decodeCursor(cursor)?.kind).toBe('jmap');
+  });
+
+  // Not a bug in this package, and not skipped to make a suite green: James
+  // answers `unknownMethod` to `Email/queryChanges`, on the container and on
+  // the production deployment alike. `Email/changes` works on both. The delta
+  // feed has to be rebuilt on it, and that is a design change rather than a
+  // fix — see docs/upstream/james-email-querychanges.md.
+  it.skip('follows the delta from a cursor (needs Email/changes, not queryChanges)', () => {
+    expect(true).toBe(true);
+  });
 
   it('returns nothing rather than failing for ids that do not exist', async () => {
     const messages = await adapter.getMessages(['no-such-email-id']);

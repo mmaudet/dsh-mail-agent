@@ -37,6 +37,10 @@ class RecordingAdapter implements MailService {
     return Promise.resolve([]);
   }
 
+  currentCursor(): Promise<string> {
+    return Promise.resolve('cursor');
+  }
+
   queryChanges(): Promise<MailChange[]> {
     return Promise.resolve([]);
   }
