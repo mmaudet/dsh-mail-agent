@@ -278,7 +278,30 @@ describe('brand spoofing compares the display name to the domain', () => {
 
     const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
     expect(trace.decidedBy).toBe('brand-spoofing');
-    expect(trace.category).toBe('spam-certain');
+    expect(trace.category).toBe('spam-probable');
+  });
+
+  it('never settles as spam-certain, whatever the mismatch', async () => {
+    // The node cannot tell an impersonation from a generic display name on a
+    // misconfigured relay: `Support` at `zendesk.example` fails the comparison
+    // exactly as `PayPal` at `paypa1-secure.example` does. `spam-certain` is
+    // junk with no review path, so this node is not entitled to it.
+    for (const [name, email] of [
+      ['PayPal', 'service@paypa1-secure.example'],
+      ['Support', 'noreply@zendesk.example'],
+      ['Newsletter', 'news@mailing.acme.example'],
+    ] as const) {
+      const message = msg({
+        id: `r7-${name}`,
+        from: [{ name, email }],
+        subject: 'Sujet',
+        spamHeaders: { 'x-spam-score': '2.0', 'x-spam-dmarc': 'fail' },
+      });
+      const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+      if (trace.decidedBy === 'brand-spoofing') {
+        expect(trace.category).toBe('spam-probable');
+      }
+    }
   });
 
   it('does not accuse a sender whose display name matches its own domain', async () => {
@@ -359,5 +382,56 @@ describe('a corporate domain is a legitimacy signal, not a category', () => {
     const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
     expect(trace.category).toBe('transactional');
     expect(trace.decidedBy).toBe('static-rule');
+  });
+});
+
+describe('a corporate domain excludes the bulk categories without settling one', () => {
+  const COLLEAGUE = { name: 'Collègue', email: 'collegue@corp.example.com' };
+
+  it('never lets a colleague be filed as spam, whatever the model answers', async () => {
+    // The purpose of the corporate list at node 4 (PRD section 4.2): a
+    // guarantee of legitimacy, not a judgement of content. A message from
+    // inside the company cannot end up in Junk on a model's say-so.
+    const model = modelAnswering({ category: 'spam-certain', confidence: 0.95, rationale: 'r' });
+    const message = msg({ id: 'r8', from: [COLLEAGUE], subject: 'Offre exceptionnelle' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.category).not.toBe('spam-certain');
+    expect(trace.category).not.toBe('spam-probable');
+  });
+
+  it('never lets a colleague be filed as a newsletter either', async () => {
+    const model = modelAnswering({ category: 'newsletter-promo', confidence: 0.95, rationale: 'r' });
+    const message = msg({ id: 'r9', from: [COLLEAGUE], subject: 'Newsletter interne' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.category).not.toBe('newsletter-promo');
+    expect(trace.category).not.toBe('newsletter-tech');
+    expect(trace.category).not.toBe('newsletter-notification');
+  });
+
+  it('is not accused of spoofing, since its legitimacy is already established', async () => {
+    // A generic display name from a known corporate domain is the exact shape
+    // node 5 mistakes for an impersonation.
+    const message = msg({
+      id: 'r10',
+      from: [{ name: 'Équipe Sécurité', email: 'securite@corp.example.com' }],
+      subject: 'Rappel: mise à jour',
+      spamHeaders: { 'x-spam-score': '1.0', 'x-spam-dmarc': 'fail' },
+    });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('brand-spoofing');
+  });
+
+  it('still lets the model answer a non-bulk category', async () => {
+    // Excluding bulk is not deciding: the model still settles the message.
+    const model = modelAnswering({ category: 'important', confidence: 0.9, rationale: 'r' });
+    const message = msg({ id: 'r11', from: [COLLEAGUE], subject: 'Peux-tu valider avant 17h ?' });
+
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).toBe('llm');
+    expect(trace.category).toBe('important');
   });
 });

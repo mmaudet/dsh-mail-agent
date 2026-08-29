@@ -150,7 +150,12 @@ export const CORPUS: readonly CorpusCase[] = [
       },
       bodyText: 'Connectez-vous pour rétablir votre accès.',
     }),
-    expected: 'spam-certain',
+    // `spam-probable`, not `spam-certain`: node 5 reasons from a name/domain
+    // mismatch, and a generic display name on a badly configured relay looks
+    // the same as an impersonation. Junk either way, but a probable one is
+    // listed in the weekly digest, so the mistake is visible and reversible
+    // (PRD section 4.5).
+    expected: 'spam-probable',
     decidedBy: 'brand-spoofing',
     because: 'display name impersonates a brand while DMARC and DKIM fail',
   },

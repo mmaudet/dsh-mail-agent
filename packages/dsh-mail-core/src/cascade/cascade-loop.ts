@@ -19,7 +19,7 @@
  * with one (PRD section 4.6).
  */
 
-import type { MailAddress, MailMessage } from '../types.js';
+import type { MailAddress, MailCategory, MailMessage } from '../types.js';
 import {
   DEFAULT_CONFIDENCE_THRESHOLD,
   type CascadeContext,
@@ -168,15 +168,33 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
   // 4. Static rules — VIP, corporate domains, newsletters, transactional.
   if (settled === null) await runNode('static-rule', () => staticRules(message, context));
 
+  // A corporate sender's legitimacy is already established, so node 5 has
+  // nothing to weigh: a generic display name from a known internal domain is
+  // the exact shape it mistakes for an impersonation.
+  const corporate = isCorporate(message, context);
+
   // 5. Brand spoofing — a display name claiming an identity its domain does
   //    not support, while authentication fails.
-  if (settled === null) await runNode('brand-spoofing', () => brandSpoofing(message));
+  if (settled === null && !corporate) {
+    await runNode('brand-spoofing', () => brandSpoofing(message));
+  }
 
   // 6. The model — the only node that leaves the process. It is reached only
   //    when the six above all declined, and only when one was handed in.
   if (settled === null && model !== null) {
     const stepStart = now();
-    const answer = await model.classify(message, context);
+    const raw = await model.classify(message, context);
+    // A colleague cannot be junked or filed as a newsletter on a model's
+    // say-so. Rather than substitute a category of our own, the answer
+    // degrades to the honest non-answer: something is off, a person looks.
+    const answer: NodeVerdict =
+      corporate && BULK_CATEGORIES.includes(raw.category)
+        ? {
+            category: 'needs-review',
+            confidence: raw.confidence,
+            rationale: 'a bulk category was proposed for a corporate sender; left for review',
+          }
+        : raw;
     steps.push({ node: 'llm', verdict: answer, durationMs: Math.max(0, now() - stepStart) });
     usedModel = true;
     settled = { node: 'llm', verdict: answer };
@@ -314,9 +332,15 @@ function brandSpoofing(message: MailMessage): NodeVerdict | null {
   if (from === null || from.name === null || from.name.trim() === '') return null;
   if (!authenticationFailed(message.spamHeaders)) return null;
   if (nameSupportedByDomain(from.name, domainOf(from.email.toLowerCase()))) return null;
+  // `spam-probable`, never `spam-certain`. The comparison cannot tell an
+  // impersonation from a generic display name on a badly configured relay:
+  // `Support` at `zendesk.example` fails it exactly as a lookalike domain
+  // does. Probable spam is junked but listed in the weekly digest, so a
+  // mistake here is visible and reversible (PRD section 4.5); certain spam is
+  // not, and this node has not earned that.
   return {
-    category: 'spam-certain',
-    confidence: 1,
+    category: 'spam-probable',
+    confidence: 0.8,
     rationale: 'display name claims an identity the sender domain does not support, while message authentication fails',
   };
 }
@@ -396,6 +420,30 @@ function authenticationFailed(headers: Readonly<Record<string, string>>): boolea
   }
   return false;
 }
+
+/**
+ * Whether the sender is on a domain the owner has declared corporate.
+ *
+ * PRD section 4.2 lists these at node 4 beside the VIPs. They answer a
+ * question of *legitimacy*, not one of category: being a colleague says the
+ * message is not bulk and says nothing about how urgent it is. So the list
+ * settles nothing and instead removes the bulk categories from what the rest
+ * of the cascade may conclude.
+ */
+function isCorporate(message: MailMessage, context: CascadeContext): boolean {
+  const from = firstFrom(message);
+  if (from === null) return false;
+  const domain = domainOf(from.email.toLowerCase());
+  return context.corporateDomains.some((d) => d.toLowerCase() === domain);
+}
+
+const BULK_CATEGORIES: readonly MailCategory[] = [
+  'spam-certain',
+  'spam-probable',
+  'newsletter-tech',
+  'newsletter-promo',
+  'newsletter-notification',
+];
 
 /** True when a (lowercased) subject carries any of the given markers. */
 function hasAnyMarker(subject: string, markers: readonly string[]): boolean {
