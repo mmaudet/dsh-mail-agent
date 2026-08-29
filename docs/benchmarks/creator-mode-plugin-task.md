@@ -35,7 +35,7 @@ naming a module with no `apply`.
 | 2 | `mistralai/mistral-small-2603` | 2, with defects listed | 4 / 7 | FAIL — code correct, never mounted the bundle |
 | 3 | `nvidia/nemotron-3-ultra-550b-a55b:free` | 1 | — | **VOID** — stream truncated, see below |
 | 4 | `nvidia/nemotron-3-ultra-550b-a55b` | 1 | — | **VOID** — output cap of 1024 cut the write |
-| 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, cap 16384 | pending | pending |
+| 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, pinned upstream, cap 32768 | 3 / 7 | FAIL — reported success against a different profile |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -60,6 +60,50 @@ Observation worth keeping from the voided run: before truncating, it read
 `index.ts`, `mail-service.ts`, `jmap-adapter.ts`, `mail-ping.ts`, then the
 reference plugin and its patch — the files the brief named, in order, before
 writing anything. Mistral began writing earlier.
+
+## Run 5: the first that measured a model
+
+Nemotron completed the task and reported three checks passing. All three were
+run against **`mail-agent-dev`** — the working profile, where the task was
+already done and merged — rather than `ab-nemotron`, the benchmark clone it had
+been working in. It built one repository and verified another.
+
+Scored against the right target: **3 / 7**, and one of those three is vacuous
+(the profile boots because nothing was mounted into it).
+
+What it got right, and Mistral had not: `dsh.bundle.patch` in the correct
+object shape, and `./cordis.patch.yml` added to `exports`. What it got wrong is
+the same blocking defect Mistral hit in round one:
+
+```yaml
+name: '@dsh-mail-agent/mail-core'    # resolves to index.js, which has no apply
+```
+
+No `./plugin` subpath export, so the plugin entry is unreachable. And, like
+both Mistral rounds, it never ran `dsh plugin add`.
+
+### The comparison, such as it is
+
+| | Mistral round 1 | Nemotron round 1 |
+|---|---|---|
+| Checks passed | 1 / 7 | 3 / 7 |
+| Blocking defect | row names package root | row names package root |
+| Mounted the bundle | no | no |
+| Claimed success | yes | yes |
+| Verified against | its own greps | a different profile |
+
+Two models, three rounds between them, and **the same two failures every
+time**: naming the package root instead of the subpath export, and skipping
+the mounting step the brief states explicitly. That the failure is identical
+across a 24B and a 550B model says it is not a capacity problem. Both had the
+working example open — `dsh-llm-openai` declares the analogous export — and
+neither generalised from it.
+
+Nemotron's verification failure is the more interesting one. Mistral grepped
+its own writes, which is circular. Nemotron ran real commands that would have
+been correct in another directory: it substituted the familiar profile name for
+the one it was working in. The output was truthful about a system nobody had
+asked about.
 
 ## Three confounds, all mine
 
