@@ -445,6 +445,12 @@ const EMAIL_PROPERTIES: readonly string[] = [
   'textBody',
   'htmlBody',
   'header:list-unsubscribe:asText',
+  // Every header, because the ones the cascade needs cannot be named in
+  // advance: `x-spam-*` varies by filter, and authentication results arrive as
+  // RFC 8601 `Authentication-Results` on one server and as `x-spam-dmarc` on
+  // another. JMAP returns only what is asked for, and asking for a fixed list
+  // is how nodes 2 and 5 came to see nothing at all on a live account.
+  'headers',
 ];
 
 interface RawMailbox {
@@ -553,15 +559,36 @@ function bodyPart(bodyValues: unknown, parts: unknown): string | null {
   return asString(readProp(readProp(bodyValues, partId), 'value'));
 }
 
+/**
+ * The headers the cascade reasons about, keyed lowercase.
+ *
+ * `headers` is RFC 8621's list of every header as `{name, value}`. Anything
+ * matching `x-spam-*` is kept, and `authentication-results` with it: that is
+ * where SPF, DKIM and DMARC actually live on a standards-compliant server,
+ * whatever a spam filter also chooses to stamp.
+ */
 function spamHeaders(value: unknown): Readonly<Record<string, string>> {
-  const record = asRecord(value);
-  if (record === null) return {};
-
   const headers: Record<string, string> = {};
-  for (const [key, raw] of Object.entries(record)) {
-    const match = /^header:(x-spam-[^:]+)/i.exec(key);
-    const text = asString(raw);
-    if (match?.[1] !== undefined && text !== null) headers[match[1].toLowerCase()] = text;
+
+  for (const entry of asArray(readProp(value, 'headers'))) {
+    const name = asString(readProp(entry, 'name'))?.toLowerCase();
+    const text = asString(readProp(entry, 'value'));
+    if (name === undefined || text === null) continue;
+    if (/^x-spam-/.test(name) || name === 'authentication-results') {
+      // A header may repeat; the last one wins, which is what a reader of the
+      // message sees too.
+      headers[name] = text.trim();
+    }
+  }
+
+  // Servers that answer a named header property rather than the list.
+  const record = asRecord(value);
+  if (record !== null) {
+    for (const [key, raw] of Object.entries(record)) {
+      const match = /^header:(x-spam-[^:]+)/i.exec(key);
+      const text = asString(raw);
+      if (match?.[1] !== undefined && text !== null) headers[match[1].toLowerCase()] = text.trim();
+    }
   }
   return headers;
 }

@@ -435,3 +435,61 @@ describe('a corporate domain excludes the bulk categories without settling one',
     expect(trace.category).toBe('important');
   });
 });
+
+describe('authentication is read as servers actually write it', () => {
+  function withHeaders(id: string, spamHeaders: Record<string, string>): MailMessage {
+    return msg({
+      id,
+      from: [{ name: 'PayPal', email: 'service@paypa1-secure.example' }],
+      subject: 'Votre compte',
+      spamHeaders,
+    });
+  }
+
+  it('reads a hard failure out of an RFC 8601 Authentication-Results', async () => {
+    // The real shape, qualifiers and all. An equality test against `fail`
+    // matches none of this, which is how a node that passes on a fixture reads
+    // nothing at all on the wire.
+    const message = withHeaders('r12', {
+      'authentication-results':
+        'mx.example.com; dmarc=fail (p=reject dis=none) header.from=paypal.com; dkim=none',
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('brand-spoofing');
+  });
+
+  it('does not read softfail, neutral or none as forgery', async () => {
+    // A forwarder breaks SPF routinely. Treating that as an impersonation is
+    // how a mailing list ends up in Junk.
+    for (const results of [
+      'mx.example.com; spf=softfail smtp.mailfrom=example.com',
+      'mx.example.com; dmarc=none; dkim=neutral',
+      'mx.example.com; spf=temperror',
+    ]) {
+      const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+      const trace = await runCascade(withHeaders('r13', { 'authentication-results': results }), {
+        context: CONTEXT,
+        model,
+      });
+      expect(trace.decidedBy).not.toBe('brand-spoofing');
+    }
+  });
+
+  it('still reads a filter that stamps one verdict per header', async () => {
+    const trace = await runCascade(withHeaders('r14', { 'x-spam-dmarc': 'fail (p=reject)' }), {
+      context: CONTEXT,
+      model: FORBIDDEN_MODEL,
+    });
+    expect(trace.decidedBy).toBe('brand-spoofing');
+  });
+
+  it('does not read a per-header softfail as forgery either', async () => {
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const trace = await runCascade(withHeaders('r15', { 'x-spam-spf': 'softfail' }), {
+      context: CONTEXT,
+      model,
+    });
+    expect(trace.decidedBy).not.toBe('brand-spoofing');
+  });
+});

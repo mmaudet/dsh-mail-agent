@@ -414,12 +414,33 @@ function readSpamScore(headers: Readonly<Record<string, string>>): number | null
 
 /** True when any of DMARC, DKIM or SPF reports a hard failure. */
 function authenticationFailed(headers: Readonly<Record<string, string>>): boolean {
+  // RFC 8601: `Authentication-Results: mx.example; dmarc=fail (p=reject)
+  // header.from=x; spf=softfail smtp.mailfrom=y`. The method names carry
+  // qualifiers and trailing properties, so an equality test against `fail`
+  // sees none of them — which is how a rule that passes on a fixture reads
+  // nothing at all on the wire.
+  const results = headers['authentication-results'];
+  if (results !== undefined && HARD_FAIL.test(results)) return true;
+
+  // Some filters stamp their own verdict instead, one method per header.
   for (const name of ['x-spam-dmarc', 'x-spam-dkim', 'x-spam-spf']) {
-    const value = headers[name];
-    if (value !== undefined && value.toLowerCase() === 'fail') return true;
+    const value = headers[name]?.toLowerCase();
+    // `softfail` and `permerror` are not assertions of forgery, and treating
+    // them as one is how legitimate mail behind a forwarder gets junked.
+    if (value !== undefined && /^fail\b/.test(value)) return true;
   }
   return false;
 }
+
+/**
+ * A hard authentication failure in an RFC 8601 result string.
+ *
+ * `dmarc=fail`, `dkim=fail`, `spf=fail` only. `softfail`, `neutral`, `none`,
+ * `temperror` and `permerror` all say something other than "this is forged",
+ * and the boundary between them is the difference between catching a spoof and
+ * junking a mailing list.
+ */
+const HARD_FAIL = /\b(?:dmarc|dkim|spf)\s*=\s*fail\b/i;
 
 /**
  * Whether the sender is on a domain the owner has declared corporate.
