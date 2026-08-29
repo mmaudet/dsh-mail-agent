@@ -41,12 +41,14 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-tools": "catalog:",
     "@types/node": "catalog:",
+    "@types/nodemailer": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -54,5 +56,9 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "dependencies": {
+    "imapflow": "catalog:",
+    "nodemailer": "catalog:"
   }
 }
