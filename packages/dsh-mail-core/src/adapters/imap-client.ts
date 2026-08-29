@@ -29,8 +29,16 @@ export interface ImapClientConfig {
   readonly port: number;
   readonly secure: boolean;
   readonly user: string;
-  /** Resolved at construction by the caller; never read from config here. */
-  readonly password: string;
+  /**
+   * Resolved at construction by the caller; never read from config here.
+   * Exactly one of `password` and `accessToken` is used: a server advertising
+   * `AUTH=XOAUTH2` (Gmail, Outlook 365) takes the token, everything else takes
+   * the password. The account this project targets advertises `AUTH=PLAIN`
+   * only, which is why both paths exist.
+   */
+  readonly password?: string | undefined;
+  /** OAuth 2 bearer for XOAUTH2. Refreshing it is the caller's job. */
+  readonly accessToken?: string | undefined;
   /** Trust a self-signed certificate. Test servers only. */
   readonly allowInsecureTls?: boolean | undefined;
 }
@@ -40,7 +48,9 @@ export interface SmtpClientConfig {
   readonly port: number;
   readonly secure: boolean;
   readonly user: string;
-  readonly password: string;
+  /** As for IMAP: one of these, not both. */
+  readonly password?: string | undefined;
+  readonly accessToken?: string | undefined;
   readonly from: MailAddress;
   readonly allowInsecureTls?: boolean | undefined;
 }
@@ -96,11 +106,17 @@ export class ImapFlowConnection implements ImapConnection {
   private opened: string | null = null;
 
   constructor(config: ImapClientConfig) {
+    if (config.password === undefined && config.accessToken === undefined) {
+      throw new TypeError('An IMAP connection needs either a password or an access token');
+    }
     this.client = new ImapFlow({
       host: config.host,
       port: config.port,
       secure: config.secure,
-      auth: { user: config.user, pass: config.password },
+      auth:
+        config.accessToken === undefined
+          ? { user: config.user, pass: config.password }
+          : { user: config.user, accessToken: config.accessToken },
       logger: false,
       // A test server's certificate is self-signed; a real one is not, and the
       // flag has to be asked for explicitly rather than defaulted on.
@@ -300,11 +316,17 @@ export class NodemailerSender implements SmtpSender {
 
   constructor(config: SmtpClientConfig) {
     this.from = config.from;
+    if (config.password === undefined && config.accessToken === undefined) {
+      throw new TypeError('An SMTP sender needs either a password or an access token');
+    }
     this.transport = createTransport({
       host: config.host,
       port: config.port,
       secure: config.secure,
-      auth: { user: config.user, pass: config.password },
+      auth:
+        config.accessToken === undefined
+          ? { user: config.user, pass: config.password }
+          : { type: 'OAuth2', user: config.user, accessToken: config.accessToken },
       ...(config.allowInsecureTls === true ? { tls: { rejectUnauthorized: false } } : {}),
     });
   }
