@@ -3,7 +3,7 @@
 // One command per option, on one connection, raw over TLS with no library in
 // the path, so the output is the server's answer rather than a client's
 // interpretation of it. Written to narrow a failure on a Twake Mail
-// deployment; see docs/upstream/james-list-return-subscribed.md.
+// deployment; see docs/upstream/twake-mail-list-return-subscribed.md.
 //
 //   PROBE_HOST=imap.example.com PROBE_USER=user@example.com \
 //     PROBE_PASS="$PASSWORD" node scripts/probe-james-list.mjs

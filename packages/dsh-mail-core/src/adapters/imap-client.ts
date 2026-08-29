@@ -141,7 +141,7 @@ export class ImapFlowConnection implements ImapConnection {
    * selection option and plain `LSUB`. Narrowed by issuing each option on its
    * own: `SUBSCRIBED` as a *return* option is the single trigger. Upstream
    * `apache/james:memory-latest` accepts all of them, so this is a property of
-   * that deployment rather than of James — see docs/upstream/james-list-return-subscribed.md.
+   * that deployment rather than of James — see docs/upstream/twake-mail-list-return-subscribed.md.
    *
    * Only that one argument is dropped. Turning off the aux options too would
    * cost `SPECIAL-USE`, which is how folder roles are resolved.

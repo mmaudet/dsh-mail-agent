@@ -136,7 +136,7 @@ without that one argument — dropping the others too would cost `SPECIAL-USE`,
 which is how folder roles are resolved.
 
 Worth fixing upstream rather than working around forever:
-[docs/upstream/james-list-return-subscribed.md](upstream/james-list-return-subscribed.md).
+[docs/upstream/twake-mail-list-return-subscribed.md](upstream/twake-mail-list-return-subscribed.md).
 
 ### `apiUrl` is the server's address, not yours
 
