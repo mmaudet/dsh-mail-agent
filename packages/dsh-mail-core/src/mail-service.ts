@@ -94,43 +94,50 @@ export function keywordFallback(category: MailCategory): KeywordFallback {
  * colliding with anything the harness registers.
  */
 export class MailboxService extends Service implements MailService {
-  readonly #adapter: MailService;
+  // `private`, not `#`, and the exception to the house rule is the reason:
+  // consumers reach a service through a Cordis proxy, and `#field` is a runtime
+  // brand check against the real instance. Through the proxy every method
+  // throws `Cannot read private member #adapter from an object whose class did
+  // not declare it` — at first call, long after a clean boot. `private` erases
+  // at runtime, which is exactly what makes it survive the proxy. Every Service
+  // subclass in DSH itself does the same.
+  private readonly adapter: MailService;
 
   constructor(ctx: Context, adapter: MailService) {
     super(ctx, 'mailbox');
-    this.#adapter = adapter;
+    this.adapter = adapter;
   }
 
   get capabilities(): Capabilities {
-    return this.#adapter.capabilities;
+    return this.adapter.capabilities;
   }
 
   listFolders(): Promise<MailFolder[]> {
-    return this.#adapter.listFolders();
+    return this.adapter.listFolders();
   }
 
   queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]> {
-    return this.#adapter.queryChanges(folder, sinceCursor);
+    return this.adapter.queryChanges(folder, sinceCursor);
   }
 
   getMessages(ids: string[]): Promise<MailMessage[]> {
-    return this.#adapter.getMessages(ids);
+    return this.adapter.getMessages(ids);
   }
 
   watchInbox(handler: (evt: MailChange) => void): AsyncDisposable {
-    return this.#adapter.watchInbox(handler);
+    return this.adapter.watchInbox(handler);
   }
 
   moveMessage(id: string, targetFolder: string): Promise<void> {
-    return this.#adapter.moveMessage(id, targetFolder);
+    return this.adapter.moveMessage(id, targetFolder);
   }
 
   createDraft(msg: DraftMessage): Promise<string> {
-    return this.#adapter.createDraft(msg);
+    return this.adapter.createDraft(msg);
   }
 
   submitDraft(draftId: string): Promise<void> {
-    return this.#adapter.submitDraft(draftId);
+    return this.adapter.submitDraft(draftId);
   }
 
   /**
@@ -143,14 +150,14 @@ export class MailboxService extends Service implements MailService {
    * mounted.
    */
   async setKeywords(id: string, keywords: string[]): Promise<void> {
-    if (this.#adapter.capabilities.customKeywords) {
-      await this.#adapter.setKeywords(id, keywords);
+    if (this.adapter.capabilities.customKeywords) {
+      await this.adapter.setKeywords(id, keywords);
       return;
     }
 
     const plan = planDegradedKeywords(keywords);
-    if (plan.flags.length > 0) await this.#adapter.setKeywords(id, [...plan.flags]);
-    if (plan.folder !== null) await this.#adapter.moveMessage(id, plan.folder);
+    if (plan.flags.length > 0) await this.adapter.setKeywords(id, [...plan.flags]);
+    if (plan.folder !== null) await this.adapter.moveMessage(id, plan.folder);
   }
 }
 
