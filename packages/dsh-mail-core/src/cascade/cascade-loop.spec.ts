@@ -230,3 +230,134 @@ function contextFor(message: MailMessage): CascadeContext {
   }
   return CONTEXT;
 }
+
+// ---------------------------------------------------------------------------
+// Round two: the findings a green suite did not see.
+//
+// Each of these passed the suite above while being wrong, which is the whole
+// reason they are written down as tests now. Messages are built here rather
+// than added to the corpus: the corpus is the labelled reference set, and
+// these are regressions, not cases anyone classifies by hand.
+// ---------------------------------------------------------------------------
+
+function msg(overrides: Partial<MailMessage> & Pick<MailMessage, 'id'>): MailMessage {
+  return {
+    threadId: null,
+    messageId: `${overrides.id}@example.org`,
+    inReplyTo: [],
+    references: [],
+    from: [{ name: 'Someone', email: 'someone@example.org' }],
+    to: [{ name: null, email: OWNER }],
+    cc: [],
+    subject: '',
+    receivedAt: new Date('2026-08-29T09:00:00Z'),
+    sentAt: new Date('2026-08-29T08:59:00Z'),
+    keywords: [],
+    folder: 'INBOX',
+    preview: '',
+    bodyText: null,
+    bodyHtml: null,
+    hasAttachments: false,
+    spamHeaders: {},
+    listUnsubscribe: [],
+    ...overrides,
+  };
+}
+
+describe('brand spoofing compares the display name to the domain', () => {
+  it('catches a brand nobody put on a list', async () => {
+    // PRD 4.2 node 5 asks for display-name versus domain similarity. A fixed
+    // list of well-known brands only catches impersonations somebody thought
+    // of; a regional bank, a supplier or the owner's own employer walk past it.
+    const message = msg({
+      id: 'r1',
+      from: [{ name: 'Banque Populaire', email: 'securite@client-verif.attacker.test' }],
+      subject: 'Vérification requise',
+      spamHeaders: { 'x-spam-score': '2.4', 'x-spam-dmarc': 'fail', 'x-spam-spf': 'fail' },
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('brand-spoofing');
+    expect(trace.category).toBe('spam-certain');
+  });
+
+  it('does not accuse a sender whose display name matches its own domain', async () => {
+    // Authentication can fail for dull reasons — a forwarder, a misconfigured
+    // relay. Without a name/domain mismatch there is no impersonation claim.
+    const message = msg({
+      id: 'r2',
+      from: [{ name: 'Boutique', email: 'orders@boutique.example' }],
+      subject: 'Votre commande',
+      spamHeaders: { 'x-spam-score': '1.1', 'x-spam-dmarc': 'fail' },
+    });
+
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('brand-spoofing');
+  });
+});
+
+describe('a learned pattern matches an address, not a substring of one', () => {
+  it('refuses an address that merely contains the learned one', async () => {
+    // Learned patterns accumulate from observed traffic, so an attacker who can
+    // guess a trusted sender can craft an address that contains it. The VIP
+    // rule in the same file already compares for equality.
+    const message = msg({
+      id: 'r3',
+      from: [{ name: 'Veille', email: 'x-veille@partenaire.example.attacker.test' }],
+      subject: 'Revue hebdo des publications',
+    });
+
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const trace = await runCascade(message, { context: CONTEXT, model });
+    expect(trace.decidedBy).not.toBe('learned-pattern');
+  });
+
+  it('still matches the address it learned', async () => {
+    const message = msg({
+      id: 'r4',
+      from: [{ name: 'Veille Interne', email: 'veille@partenaire.example' }],
+      subject: 'Revue hebdo des publications',
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.decidedBy).toBe('learned-pattern');
+    expect(trace.category).toBe('newsletter-tech');
+  });
+});
+
+describe('a corporate domain is a legitimacy signal, not a category', () => {
+  it('does not settle an internal message as standard on the domain alone', async () => {
+    // Settling here at confidence 1 means node 7 cannot degrade it and the
+    // model never sees it: every message from a colleague reads as
+    // informational, and an urgent internal request is filed like a company
+    // newsletter. Legitimacy and category are two judgements.
+    const message = msg({
+      id: 'r5',
+      from: [{ name: 'Collègue', email: 'collegue@corp.example.com' }],
+      subject: 'Peux-tu valider le budget avant 17h ?',
+      bodyText: 'Il me faut ton accord aujourd hui.',
+    });
+
+    const model = modelAnswering({ category: 'important', confidence: 0.9, rationale: 'r' });
+    const trace = await runCascade(message, { context: CONTEXT, model });
+
+    expect(model.calls).toBe(1);
+    expect(trace.decidedBy).toBe('llm');
+    expect(trace.category).toBe('important');
+  });
+
+  it('still recognises a transactional message from a corporate domain', async () => {
+    // PRD 4.5 treats transactional specially — never digested, archived after a
+    // day — so misfiling it as standard has consequences downstream.
+    const message = msg({
+      id: 'r6',
+      from: [{ name: 'IT', email: 'noreply@corp.example.com' }],
+      subject: 'Votre code de connexion : 774213',
+    });
+
+    const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
+    expect(trace.category).toBe('transactional');
+    expect(trace.decidedBy).toBe('static-rule');
+  });
+});
