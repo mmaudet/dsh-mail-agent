@@ -120,9 +120,17 @@ output. From this session:
   the "missing" one was present twice. The fix was to ask the response for its
   own count rather than counting the printed lines.
 
-The pattern in all three: the failure was not in reasoning but in verifying —
+- **A repair was declared sound on the wrong evidence.** After fixing a broken
+  profile, `dsh --profile <name> --dump-config` returned cleanly and the profile
+  was called healthy. The dump assembles the configuration tree; it loads no
+  plugin. Two rows that fail at load — one naming a module with no `apply`, one
+  with no `name` at all — are invisible to it. Composing is not booting, and the
+  check that would have caught it was starting the thing.
+
+The pattern in all four: the failure was not in reasoning but in verifying —
 and each was caught by making the machine assert something rather than by
-looking harder.
+looking harder. The last one is the sharpest, because the verification *ran*
+and passed; it simply answered a different question than the one being asked.
 
 ---
 
@@ -340,6 +348,75 @@ architecture rather than the one in front of it.
 
 An agent with write access does not need to be malicious, or even wrong on
 purpose, to leave a workspace that no longer builds.
+
+### The configuration that was plausible and entirely wrong
+
+This is the one to lead the section with. The next morning the profile would
+not boot at all:
+
+```
+Error: failed to apply loader entry mail.service (@dsh-mail-agent/mail-core):
+       invalid plugin, expect function or object with an "apply" method
+Error: failed to import loader entry mail.llm.default (undefined):
+       Cannot read properties of undefined (reading 'startsWith')
+```
+
+The profile's `cordis.patch.yml` had been rewritten wholesale. The operator's
+own row — the one saying which model route the loop uses — was gone, replaced
+by a JMAP configuration complete with a header comment explaining its own
+intent:
+
+```yaml
+# Profile patch for mail-agent-dev: instantiate the JMAP adapter with OIDC Twake secrets.
+# - references secrets via dsh-secrets (MAIL_SENTINEL_OIDC_*)
+
+- insert:
+    - id: mail.service
+      name: '@dsh-mail-agent/mail-core'
+      config:
+        jmap:
+          server_url: https://jmap.twake.app
+          oidc:
+            client_id_ref: dsh:secret:MAIL_SENTINEL_OIDC_CLIENT_ID
+            redirect_uri: http://localhost:8765/oauth/callback
+            issuer: https://sso.twake.app
+            scopes: [openid, profile, jmap]
+          token_storage:
+            path: $DSH_HOME/state/mail-agent/tokens.enc
+```
+
+**Not one value is correct.**
+
+| Written | Actual, and verified days earlier |
+|---|---|
+| `jmap.twake.app` | `jmap-new.linagora.com` |
+| `sso.twake.app` | `sso.linagora.com` |
+| `dsh:secret:<NAME>` | the credential seam addresses secrets by environment-variable name |
+| `localhost:8765/oauth/callback` | not the URI registered for this client |
+| `[openid, profile, jmap]` | granted scopes are `openid profile email` |
+| `token_storage.path` + `encryption` | not how the store works |
+
+Every one of these is a line lifted from the project's own requirements
+document — **including the six errors that document contains and that this
+project had already identified, measured and corrected.** The agent reproduced
+the specification rather than reading the environment it was standing in, with
+the session URL, account id, identity id and live tokens all present in
+`$DSH_HOME/.env` two directories away.
+
+The header comment is the part that should unsettle a reader: *"references
+secrets via dsh-secrets"* is an assertion about the file's own correctness, and
+it is false. So is the description of what the patch does.
+
+This is not a hallucination in the usual sense, because nothing about it looks
+wrong. It is well-formed YAML, coherently structured, commented in the house
+style, and it names real-sounding hosts. **A reviewer skimming a diff would
+approve it.** What exposes it is not reading more carefully — it is booting the
+thing, or checking each value against a system that can answer.
+
+The lesson for the article is not "models make things up". It is that a
+sufficiently fluent wrong answer defeats review, and the only defence that
+scales is an executable check. Every value in that table was already knowable
+by running one command.
 
 ### The observability is what caught the model
 
