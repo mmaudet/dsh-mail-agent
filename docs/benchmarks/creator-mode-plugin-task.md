@@ -23,9 +23,19 @@ Comparability is the whole point, so each run gets the same starting state:
   no other run does either. It stays with the reviewer as the judge.
 - **Same prompt, verbatim**, pointing at the brief.
 
-Scored by `scripts/verify-mail-core-bundle.sh`, whose last check boots the
-profile. Composing is not booting, and every earlier check passes on a row
-naming a module with no `apply`.
+Scored by `scripts/score-bench.sh`, which is the whole procedure and not one
+of its steps. It runs `verify-mail-core-bundle.sh` — whose last check boots the
+profile, because composing is not booting and every earlier check passes on a
+row naming a module with no `apply` — but it runs the reviewer's copy, not the
+one in the bench, and it does two things around it that were being done by hand:
+
+- **diffs the bench's copy of the judge against canonical**, because the judge
+  sits in a workspace the subject can write to, and one run edited it;
+- **diffs the produced `plugin.ts` against the reference implementation**,
+  because a copied solution passes every structural check.
+
+Both were once forgotten, and each time the miss cost a run. A procedure that
+depends on the reviewer remembering is not a procedure.
 
 ## Results
 
