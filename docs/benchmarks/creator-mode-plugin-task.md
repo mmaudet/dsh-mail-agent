@@ -52,6 +52,7 @@ depends on the reviewer remembering is not a procedure.
 | 9 | `deepseek/deepseek-v4-pro` | 2, over ACP | — | **VOID** — same, stalled asking to mount |
 | 10 | `qwen/qwen3.8-27b` | 1, over ACP, consent granted | 2 / 6 | **VOID** — upstream truncated mid-run |
 | 11 | `deepseek/deepseek-v4-pro` | 1, over ACP, consent granted | **6 / 6** | **PASS**, unaided, first round |
+| 12 | `qwen/qwen3.8-27b` | 1, rerun after truncation | **6 / 6** | **PASS**, unaided, judge untouched |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -214,6 +215,46 @@ declared the `./plugin` subpath export **and** re-exported `apply`, `name` and
 model to plan before writing — five explicit tasks, revised mid-course — and
 the only one to notice that `applyMailPing(ctx)` registers into `ctx.tools`
 while reasoning about ordering.
+
+## Run 12: the open-weights result the project was looking for
+
+Qwen 3.8-27B cleared all six checks in one round, unaided, in about twenty-one
+minutes and 62 tool calls. It mounted the bundle itself, escalating twice
+through the consent channel. The judge in its workspace is byte-identical to
+canonical: it did not touch it. The anti-leak diff returns 273 differing lines
+across 189 versus 146.
+
+Cross-contamination checked explicitly, because run 5 failed on exactly that:
+it mounted into `ab-qwen-acp`, its own profile, and the working profile and
+repository are untouched.
+
+### It got the protocol right that the 550B model got wrong
+
+Both Mistral and Nemotron wrote a transport that POSTs method calls straight at
+the JMAP session resource. RFC 8620 §2 makes that a discovery document. That bug
+survived Nemotron's 7/7 pass, because the script tests structure and boot and
+never opens a JMAP connection — only a human review caught it, twice.
+
+Qwen wrote the discovery:
+
+```ts
+/** Fetch the session resource once and read `accounts[accountId].apiUrl`. */
+async #resolveApiUrl(): Promise<string> {
+  if (this.#apiUrl !== null) return this.#apiUrl;
+  ...
+  const apiUrl = session.accounts?.[this.#accountId]?.apiUrl;
+```
+
+Fetched once, cached, and the calls go to `apiUrl`. Correct, and nobody told it.
+
+**A 27B open-weights model got a protocol detail right that a 550B model got
+wrong, on the same brief.** Whatever this benchmark measures, it is not
+parameter count.
+
+Two things it does not do that the reference does: it drops no cached `apiUrl`
+on a 404 or 410, and it reads `process.env` directly rather than taking an
+injected environment, which makes `apply` harder to exercise in a test. Neither
+is a defect the task asked about.
 
 ## Run 11: a first-round pass, and the model fixed the judge
 

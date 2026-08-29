@@ -82,9 +82,26 @@ underserved.
   leaves the perimeter* is the claim worth defending, and it survives an
   authoring model that does.
 
-## What would make this stronger
+## The asymmetry may not be needed
 
-An open-weights model small enough to run on one GPU that passes the authoring
-benchmark. That would put both halves inside the perimeter and remove the
-asymmetry entirely, rather than justifying it. Candidates on the current
-gateway are the 27B-dense and 30B-a3b classes; that measurement is open.
+This ADR was written asking for one thing: an open-weights model small enough
+to run on one GPU that passes the authoring benchmark. That would put both
+halves inside the perimeter and remove the asymmetry rather than justify it.
+
+**Qwen 3.8-27B passed it**, unaided, in one round: all six checks, the bundle
+mounted by its own hand, the judge untouched, and its JMAP transport doing the
+RFC 8620 session discovery that a 550B model got wrong on the same brief. A
+27B-dense model fits one GPU.
+
+That is one run on one task, and it is not yet grounds for rewriting the
+decision. What it does is move the question from *whether* the split is
+necessary to *whether it is still worth its cost*. The Decision above stands
+because two independent choices are cheap to keep and cost nothing when they
+happen to coincide — but the sovereignty argument for it is now weaker than the
+cost argument.
+
+What would settle it: the same model passing the authoring benchmark twice more
+on tasks it has not seen, and a measurement of what it costs to serve locally
+against what the authoring workload actually is — a handful of sessions. If both
+hold, authoring moves inside the perimeter and this ADR becomes an implementation
+note rather than a trade-off.
