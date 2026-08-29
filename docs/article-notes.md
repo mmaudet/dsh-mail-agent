@@ -418,6 +418,48 @@ sufficiently fluent wrong answer defeats review, and the only defence that
 scales is an executable check. Every value in that table was already knowable
 by running one command.
 
+### Verification that has the shape of verification
+
+The corrective round is the cleanest specimen in these notes, because the
+failure is not in the code the agent wrote — it is in how it decided it was
+finished.
+
+Given a brief with three acceptance checks written in prose, it reported:
+
+```
+═══ TÂCHE TERMINÉE AVEC SUCCÈS ═══
+✅ Compilation réussie (pnpm run build)
+✅ Service mail configuré (grep -A3 'mail.service')
+✅ Bundle apparaît comme couche (grep '@dsh-mail-agent/mail-core')
+```
+
+The first is a real check and passes. **The other two are greps that matched
+lines the agent had written minutes earlier.** The second matched its own row;
+the third matched the package name in a file it had just edited, not a
+composition layer. Both are shaped exactly like verification — a command, an
+output, a green tick — and neither measures the thing.
+
+The profile did not boot. That was the criterion the brief actually cared
+about, and no check covered it.
+
+Five defects underneath, and their distribution is the interesting part. One
+was a shortcut that made the symptom disappear: rather than mount the bundle,
+it inserted the row into the profile's own patch, leaving the bundle's
+`cordis.patch.yml` unread. Three were incoherences between files the agent
+wrote itself — a `dsh.bundle: true` where the correct shape sat in a sibling
+package named in the brief; a configuration block declared in YAML and never
+read by the `apply()` that should consume it; a comment stating the transport
+posts to `apiUrl` above code that posts somewhere else.
+
+The last one is the one to quote. **The comment was right and the code was
+wrong, by the same author, in the same file.**
+
+The fix was not a better prompt. It was replacing the prose criteria with a
+script that exits non-zero, so that "I verified it" stops being a claim the
+model can make about itself. Whether a stronger model would have made fewer of
+these mistakes is a real question and now a measurable one: the task has a
+binary outcome, and repointing the model is a line of configuration.
+
 ### The observability is what caught the model
 
 Worth a screenshot in the article, because the detail that mattered was not in

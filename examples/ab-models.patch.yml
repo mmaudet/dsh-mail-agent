@@ -1,0 +1,48 @@
+# Extra model routes, for comparing models on the same task.
+#
+# Drop this into a profile's own `cordis.patch.yml` (append it; do not replace
+# what is already there) and restart. The model selector then offers the new
+# routes alongside the default ones, so a session can be run on one model and
+# the same task repeated on another.
+#
+# No code changes. Each block is another instance of the same plugin with its
+# own `providerPrefix`, which is what keeps the route keys from colliding —
+# the harness registry rejects a duplicate route outright.
+#
+# Every endpoint here is outside the sovereign perimeter ADR-0001 describes.
+# That is acceptable for a benchmark on a synthetic task and is NOT acceptable
+# for anything touching real mail: see ADR-0002.
+
+- insert:
+    # Nemotron Ultra 550B — free tier, 1M context.
+    - id: mail.llm.nemotron
+      name: '@dsh-mail-agent/llm-openai'
+      config:
+        providerPrefix: mail-llm-nemotron
+        baseUrl: https://openrouter.ai/api/v1
+        model: nvidia/nemotron-3-ultra-550b-a55b:free
+        apiKeyEnv: OPENROUTER_API_KEY
+        trustedEndpoints:
+          - https://openrouter.ai/api/v1
+
+    # GLM 5.3 Flash — 1.31M context, cheapest of the three.
+    - id: mail.llm.glm
+      name: '@dsh-mail-agent/llm-openai'
+      config:
+        providerPrefix: mail-llm-glm
+        baseUrl: https://openrouter.ai/api/v1
+        model: z-ai/glm-5.3-flash
+        apiKeyEnv: OPENROUTER_API_KEY
+        trustedEndpoints:
+          - https://openrouter.ai/api/v1
+
+    # Qwen3 Coder Plus — a coding-tuned point of comparison.
+    - id: mail.llm.qwen
+      name: '@dsh-mail-agent/llm-openai'
+      config:
+        providerPrefix: mail-llm-qwen
+        baseUrl: https://openrouter.ai/api/v1
+        model: qwen/qwen3-coder-plus
+        apiKeyEnv: OPENROUTER_API_KEY
+        trustedEndpoints:
+          - https://openrouter.ai/api/v1
