@@ -23,7 +23,7 @@ Comparability is the whole point, so each run gets the same starting state:
   no other run does either. It stays with the reviewer as the judge.
 - **Same prompt, verbatim**, pointing at the brief.
 
-Scored by `scripts/verify-mail-core-bundle.sh`, whose seventh check boots the
+Scored by `scripts/verify-mail-core-bundle.sh`, whose last check boots the
 profile. Composing is not booting, and every earlier check passes on a row
 naming a module with no `apply`.
 
@@ -38,6 +38,8 @@ naming a module with no `apply`.
 | 5 | `nvidia/nemotron-3-ultra-550b-a55b` | 1, pinned upstream, cap 32768 | 3 / 7 | FAIL — reported success against a different profile |
 | 6 | `nvidia/nemotron-3-ultra-550b-a55b` | 2, with defects listed | **7 / 7** | **PASS**, unaided |
 | 7 | `deepseek/deepseek-v4-pro` | 1 | — | **VOID** — the brief pointed it at the finished work |
+| 8 | `qwen/qwen3.8-27b` | 1, over ACP | — | **VOID** — driver dropped the consent request |
+| 9 | `deepseek/deepseek-v4-pro` | 2, over ACP | — | **VOID** — same, stalled asking to mount |
 
 Run 2 reached PASS only after the reviewer ran `dsh plugin add` by hand. Both
 Mistral rounds stopped short of the mounting step the brief named explicitly.
@@ -200,6 +202,59 @@ declared the `./plugin` subpath export **and** re-exported `apply`, `name` and
 model to plan before writing — five explicit tasks, revised mid-course — and
 the only one to notice that `applyMailPing(ctx)` registers into `ctx.tools`
 while reasoning about ordering.
+
+## A fifth confound: the mounting step was impossible, not skipped
+
+Every run so far has failed or been marked down on the same step — mounting the
+bundle into the profile. Read back, that step could not succeed in the ACP
+setup at all, for two independent reasons.
+
+**The sandbox denies it.** `dsh plugin add` writes to
+`~/.dsh/profiles/<name>/package.json`. The profile directory is outside the
+workspace, and the sandbox policy is workspace-write. So the one command the
+brief names explicitly is denied by default.
+
+That part is correct behaviour and the agent handled it correctly: DeepSeek hit
+the denial, recognised it, and escalated with a justification naming the exact
+path and the reason. Which is where the second reason bit.
+
+**The driver never answered.** DSH asks the client for consent on
+`session/request_permission` — a request, with an id, that the agent blocks on.
+`scripts/acp-run.py` routed inbound frames to either a pending reply or a
+notification handler that ignores anything but `session/update`. A request has
+an id and a method and no result, so it matched neither branch and was dropped
+without a trace. The agent waited for an answer that was never coming, and the
+run died 600 seconds later on the stall detector.
+
+So the transcript reads as a model going quiet mid-task. It was a model waiting
+politely for a permission dialog nobody was rendering.
+
+This one is worse than the other four, because it does not merely add noise —
+it makes the discriminating step unreachable. **"Did not mount the bundle" has
+been the single recurring finding of this benchmark, and under ACP it was not a
+finding at all.** Every ACP run is void for that criterion.
+
+The driver now answers: `allow_once` by default, logged, with
+`ACP_PERMISSION=reject` to measure the opposite. Verified end to end before
+relaunching, on a command that writes outside the workspace and observing the
+file appear. Answering an unimplemented client method with method-not-found
+rather than silence is part of the same fix: a capability this driver lacks
+should fail a call, not hang a run.
+
+### The pattern, now with five instances
+
+| # | What looked like a model failure | What it was |
+|---|---|---|
+| 1 | Nemotron truncated its stream | the adapter demanded a `[DONE]` sentinel |
+| 2 | Nemotron stopped mid-write | an output cap sized for classification |
+| 3 | the `:free` tier dropped the request | the paid tier failed identically |
+| 4 | models verified the wrong profile | the brief named the wrong profile |
+| 5 | models "skipped" the mounting step | the driver hung on the consent request |
+
+Five for five. Not one of the failures this benchmark has produced so far has
+turned out to be about a model. The instrument was the finding every time, and
+the only reason any of them surfaced is that a script exits non-zero where prose
+would have been satisfied.
 
 ## The earlier confounds, also mine
 
