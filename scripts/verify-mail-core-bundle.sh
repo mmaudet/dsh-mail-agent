@@ -2,12 +2,11 @@
 #
 # Acceptance check for the mail-core bundle task.
 #
-# Exists because prose acceptance criteria were satisfied with two greps that
-# matched the agent's own writes. This is not a description of what to verify;
-# it is the verification. It exits non-zero when the task is not done, and no
-# amount of confident summary changes that.
+# Exists because prose criteria were satisfied with greps matching the agent's
+# own writes. This is not a description of what to verify; it is the
+# verification, and it exits non-zero when the task is not done.
 #
-# Run from anywhere:  bash scripts/verify-mail-core-bundle.sh
+#   bash scripts/verify-mail-core-bundle.sh
 set -uo pipefail
 
 REPO="${REPO:-$HOME/work/dsh-mail-agent}"
@@ -29,13 +28,11 @@ fi
 
 # ---------------------------------------------------------------------------
 step "2. dsh.bundle.patch names a file that exists"
-patch=$(python3 - "$PKG/package.json" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-b = (d.get("dsh") or {}).get("bundle")
-print(b.get("patch") if isinstance(b, dict) else "")
-PY
-)
+patch=$(node -e '
+  const d = require(process.argv[1]);
+  const b = d.dsh && d.dsh.bundle;
+  process.stdout.write(b && typeof b === "object" && b.patch ? b.patch : "");
+' "$PKG/package.json" 2>/dev/null)
 if [ -z "$patch" ]; then
   ko 'dsh.bundle must be an object: {"patch": "./cordis.patch.yml"}, not true'
 elif [ ! -f "$PKG/${patch#./}" ]; then
@@ -43,44 +40,63 @@ elif [ ! -f "$PKG/${patch#./}" ]; then
 else ok; fi
 
 # ---------------------------------------------------------------------------
-step "3. the plugin entry is reachable as a package export"
-entry=$(python3 - "$PKG/package.json" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-for name, spec in (d.get("exports") or {}).items():
-    target = spec.get("default") if isinstance(spec, dict) else spec
-    if isinstance(target, str) and target.endswith("plugin.js"):
-        print(name); break
-PY
-)
-if [ -z "$entry" ]; then
-  ko "no export resolves to plugin.js; a row naming the package root gets index.js, which has no apply()"
-elif [ ! -f "$PKG/dist/plugin.js" ]; then
-  ko "dist/plugin.js is missing; build did not emit it"
-else ok; fi
+# One property, not one implementation: whatever the patch row names must
+# resolve to a module exporting apply(). A ./plugin subpath export is the
+# obvious way; re-exporting from the package root is equally valid, and a check
+# that demanded the first would fail working work.
+step "3. the patch row resolves to a module exporting apply()"
+if [ -z "$patch" ] || [ ! -f "$PKG/${patch#./}" ]; then
+  ko "no patch file to check"
+else
+  spec=$(sed -nE "s/^[[:space:]]*name:[[:space:]]*['\"]([^'\"]+)['\"].*/\1/p" "$PKG/${patch#./}" | head -1)
+  if [ -z "$spec" ]; then
+    ko "no name: field in the patch row"
+  else
+    detail=$(node -e '
+      const path = require("node:path");
+      const pkgPath = process.argv[1], spec = process.argv[2];
+      const pkg = require(pkgPath), dir = path.dirname(pkgPath);
+      const name = pkg.name || "";
+      const sub = spec === name ? "."
+        : spec.startsWith(name + "/") ? "." + spec.slice(name.length)
+        : null;
+      if (!sub) { console.log("NOMATCH"); process.exit(0); }
+      const entry = (pkg.exports || {})[sub];
+      const target = entry && typeof entry === "object" ? entry.default : entry;
+      if (!target) { console.log("NOEXPORT"); process.exit(0); }
+      const file = path.join(dir, target);
+      require("node:fs").existsSync(file)
+        ? import("file://" + file)
+            .then((m) => console.log(typeof m.apply === "function" ? "OK" : "NOAPPLY:" + target))
+            .catch((e) => console.log("IMPORTFAIL:" + String(e.message).slice(0, 60)))
+        : console.log("NOFILE:" + target);
+    ' "$PKG/package.json" "$spec" 2>/dev/null)
 
-# ---------------------------------------------------------------------------
-step "4. the bundle patch row points at that export"
-if [ -n "$patch" ] && [ -f "$PKG/${patch#./}" ]; then
-  if grep -qE "name:.*mail-core/" "$PKG/${patch#./}"; then ok; else
-    ko "the row must name the subpath export, not the package root"
+    case "${detail:-EMPTY}" in
+      OK)          ok ;;
+      NOMATCH)     ko "$spec is not this package or a subpath of it" ;;
+      NOEXPORT)    ko "$spec matches no entry in package.json exports" ;;
+      NOFILE:*)    ko "$spec resolves to ${detail#NOFILE:}, which the build did not emit" ;;
+      NOAPPLY:*)   ko "${detail#NOAPPLY:} exports no apply(); mounting fails with 'invalid plugin'" ;;
+      IMPORTFAIL:*) ko "could not import it: ${detail#IMPORTFAIL:}" ;;
+      *)           ko "could not resolve $spec" ;;
+    esac
   fi
-else ko "no patch file to check"; fi
+fi
 
 # ---------------------------------------------------------------------------
-step "5. the bundle is mounted in the profile"
-if grep -q "dsh-mail-agent/mail-core" "$HOME/.dsh/profiles/$PROFILE/package.json" 2>/dev/null \
-   && python3 - "$HOME/.dsh/profiles/$PROFILE/package.json" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-sys.exit(0 if "@dsh-mail-agent/mail-core" in d["dsh"]["profile"]["bundles"] else 1)
-PY
+step "4. the bundle is mounted in the profile"
+if node -e '
+  const d = require(process.argv[1]);
+  const b = (d.dsh && d.dsh.profile && d.dsh.profile.bundles) || [];
+  process.exit(b.includes("@dsh-mail-agent/mail-core") ? 0 : 1);
+' "$HOME/.dsh/profiles/$PROFILE/package.json" 2>/dev/null
 then ok; else
   ko "not in dsh.profile.bundles; add it with: dsh plugin --profile $PROFILE add $PKG"
 fi
 
 # ---------------------------------------------------------------------------
-step "6. it appears as a composition layer"
+step "5. it appears as a composition layer"
 if dsh --profile "$PROFILE" --dump-config 2>/dev/null | grep -q "^# == @dsh-mail-agent/mail-core"; then
   ok
 else
@@ -88,10 +104,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# The one that actually matters. Composing is not booting: a row naming a
-# module without apply() passes every check above and fails here.
-step "7. the profile BOOTS"
-# --port 0 lets the OS pick a free port, so this never collides with a running
+# The one that matters. Composing is not booting: every check above passes on a
+# row naming a module the loader cannot mount.
+step "6. the profile BOOTS"
+# --port 0 asks the OS for a free port, so this never collides with a running
 # session — including the one an agent may be running this script from.
 log=$(mktemp)
 ( cd /tmp && exec dsh --profile "$PROFILE" --port 0 >"$log" 2>&1 ) &
@@ -104,7 +120,6 @@ done
 if grep -q "dsh web:" "$log" 2>/dev/null; then ok; else
   ko "$(grep -m1 -E 'Error:' "$log" 2>/dev/null || echo 'did not reach "dsh web:"')"
 fi
-# Kill only the instance this script started, never one already running.
 kill "$boot_pid" 2>/dev/null
 wait "$boot_pid" 2>/dev/null
 rm -f "$log"
