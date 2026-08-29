@@ -386,7 +386,15 @@ export class NodemailerSender implements SmtpSender {
 
     // `SentMessageInfo` is `any` in the published types, so the result crosses
     // into this module as `unknown` and is read through a guard.
-    const sent: unknown = await this.transport.sendMail({ raw: composed });
+    // Sending raw bytes bypasses header parsing, so the envelope has to be
+    // stated: SMTP takes its recipients from RCPT TO, not from the message.
+    const sent: unknown = await this.transport.sendMail({
+      raw: composed,
+      envelope: {
+        from: this.from.email,
+        to: [...message.to, ...message.cc].map((a) => a.email),
+      },
+    });
     if (typeof sent !== 'object' || sent === null) {
       throw new TypeError('SMTP submission returned no result');
     }
