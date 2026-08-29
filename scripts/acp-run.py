@@ -64,6 +64,10 @@ class AcpClient:
             if "id" in msg and ("result" in msg or "error" in msg):
                 with self._lock:
                     self._replies[msg["id"]] = msg
+            elif "id" in msg and "method" in msg:
+                # The agent calls the client too. An unanswered request is not
+                # a slow turn, it is a deadlock: the agent waits forever.
+                self._on_request(msg)
             else:
                 self._on_notification(msg)
 
@@ -71,6 +75,46 @@ class AcpClient:
         assert self._proc.stderr is not None
         for line in self._proc.stderr:
             self._stderr.append(line.rstrip())
+
+    def _reply(self, rid: Any, result: dict[str, Any] | None, error: dict[str, Any] | None = None) -> None:
+        frame: dict[str, Any] = {"jsonrpc": "2.0", "id": rid}
+        if error is not None:
+            frame["error"] = error
+        else:
+            frame["result"] = result or {}
+        assert self._proc.stdin is not None
+        with self._lock:
+            self._proc.stdin.write(json.dumps(frame) + "\n")
+            self._proc.stdin.flush()
+
+    def _on_request(self, msg: dict[str, Any]) -> None:
+        self.last_activity = time.time()
+        method, rid = msg.get("method"), msg.get("id")
+
+        if method == "session/request_permission":
+            # Sandbox escalations arrive here. A benchmark run mounts a bundle
+            # into a profile under ~/.dsh, which is outside the workspace, so
+            # refusing by default would make the task impossible rather than
+            # hard. Set ACP_PERMISSION=reject to measure the opposite.
+            params = msg.get("params") or {}
+            options = params.get("options") or []
+            want = "reject_once" if os.environ.get("ACP_PERMISSION") == "reject" else "allow_once"
+            chosen = next(
+                (o for o in options if o.get("kind") == want),
+                options[0] if options else None,
+            )
+            if chosen is None:
+                self._reply(rid, {"outcome": {"outcome": "cancelled"}})
+                return
+            call = (params.get("toolCall") or {}).get("toolCallId", "?")
+            self._log(f"\n  [permission] {chosen.get('optionId')} for tool call {call}")
+            self._reply(rid, {"outcome": {"outcome": "selected", "optionId": chosen.get("optionId")}})
+            return
+
+        # Anything else is a client capability this driver did not declare.
+        # Answering with an error fails the call; staying silent hangs the run.
+        self._log(f"\n  [unhandled request] {method}")
+        self._reply(rid, None, {"code": -32601, "message": f"{method} not supported by this client"})
 
     def _on_notification(self, msg: dict[str, Any]) -> None:
         self.last_activity = time.time()
@@ -92,8 +136,10 @@ class AcpClient:
             rid = self._next_id
         frame = {"jsonrpc": "2.0", "id": rid, "method": method, "params": params}
         assert self._proc.stdin is not None
-        self._proc.stdin.write(json.dumps(frame) + "\n")
-        self._proc.stdin.flush()
+        # Shared with the pump thread, which now writes replies of its own.
+        with self._lock:
+            self._proc.stdin.write(json.dumps(frame) + "\n")
+            self._proc.stdin.flush()
 
         deadline = time.time() + timeout
         stall = float(os.environ.get("ACP_STALL_SECONDS", "300"))
