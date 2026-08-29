@@ -135,15 +135,20 @@ export class ImapFlowConnection implements ImapConnection {
   /**
    * Retries a LIST-driven call with the extended arguments turned off.
    *
-   * The account this project targets advertises `LIST-EXTENDED` and
-   * `SPECIAL-USE`, and then answers `NO LIST processing failed.` to
-   * `LIST "" "*" RETURN (SPECIAL-USE CHILDREN SUBSCRIBED)`. A plain
-   * `LIST "" "*"` against the same server returns all 418 mailboxes.
+   * The account this project targets answers `NO LIST processing failed.` to
+   * `LIST "" "*" RETURN (SUBSCRIBED)`, while `RETURN (SPECIAL-USE)` and
+   * `RETURN (CHILDREN)` both succeed, and so does the `LIST (SUBSCRIBED)`
+   * selection option and plain `LSUB`. Narrowed by issuing each option on its
+   * own: `SUBSCRIBED` as a *return* option is the single trigger. Upstream
+   * `apache/james:memory-latest` accepts all of them, so this is a property of
+   * that deployment rather than of James — see docs/upstream/james-list-return-subscribed.md.
    *
-   * A capability is an advertisement, not a guarantee. `mailboxOpen` lists
-   * before it selects, so this covers opening too. The flags are set on the
-   * connection and stay set: a server that failed once will fail again, and
-   * paying a round trip per call to rediscover that is waste.
+   * Only that one argument is dropped. Turning off the aux options too would
+   * cost `SPECIAL-USE`, which is how folder roles are resolved.
+   *
+   * `mailboxOpen` lists before it selects, so this covers opening too. The
+   * flag stays set for the connection: a server that failed once will fail
+   * again, and a round trip per call to rediscover that is waste.
    */
   private async withPlainListFallback<T>(run: () => Promise<T>): Promise<T> {
     try {
@@ -154,12 +159,10 @@ export class ImapFlowConnection implements ImapConnection {
         throw err;
       }
       this.plainListOnly = true;
-      // Not in the published types: escape hatches the library documents in
+      // Not in the published types: an escape hatch the library documents in
       // its own source for exactly this class of server.
       const escape = this.client as unknown as Record<string, boolean>;
-      escape['skipListAuxArgs'] = true;
       escape['skipListSubscribedArg'] = true;
-      escape['skipListStatusArgs'] = true;
       return run();
     }
   }

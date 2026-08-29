@@ -17,7 +17,8 @@ services:
     ports:
       - '18080:80' # JMAP
       - '18000:8000' # webadmin, used only to provision
-      - '10143:143' # IMAP
+      - '10143:143' # IMAP, cleartext, LOGINDISABLED until STARTTLS
+      - '10993:993' # IMAPS
       - '10587:587' # SMTP submission
     volumes:
       # James refuses to start without one, even for the cleartext listeners.

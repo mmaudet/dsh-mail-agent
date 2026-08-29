@@ -119,17 +119,24 @@ things no fake could have.
 
 ### A capability is an advertisement, not a guarantee
 
-The production account advertises `LIST-EXTENDED` and `SPECIAL-USE`, then
-answers `NO LIST processing failed.` to what those capabilities license:
+The production account advertises `LIST-EXTENDED` and rejects one of the return
+options that extension defines:
 
 ```
-LIST "" "*" RETURN (SPECIAL-USE CHILDREN SUBSCRIBED)   → NO
-LIST "" "*"                                            → 418 mailboxes
+LIST "" "INBOX" RETURN (SUBSCRIBED)     → NO LIST processing failed.
+LIST "" "INBOX" RETURN (SPECIAL-USE)    → OK
+LIST "" "*"                             → OK, 418 mailboxes
 ```
 
+Narrowed by issuing each option alone: `SUBSCRIBED` as a *return* option is the
+single trigger, and upstream `apache/james:memory-latest` accepts all of them.
 Any client that trusts the advertisement fails on every call, because
-`mailboxOpen` lists before it selects. `ImapFlowConnection` retries once with
-the extended arguments off and keeps that setting for the connection's life.
+`mailboxOpen` lists before it selects. `ImapFlowConnection` retries once
+without that one argument — dropping the others too would cost `SPECIAL-USE`,
+which is how folder roles are resolved.
+
+Worth fixing upstream rather than working around forever:
+[docs/upstream/james-list-return-subscribed.md](upstream/james-list-return-subscribed.md).
 
 ### `apiUrl` is the server's address, not yours
 
