@@ -118,6 +118,17 @@ const all = await adapter.getMessages(ids);
 // Newest is the holdout: patterns must predict forward, not backward.
 const test = all.slice(0, TEST);
 const learn = all.slice(TEST, TEST + LEARN);
+
+// A folder holds what it holds. Asking for 400 and silently measuring 56 is
+// how a run reports a number for an experiment nobody designed.
+if (learn.length < LEARN || test.length < TEST) {
+  console.error(
+    `Asked for ${LEARN} to learn and ${TEST} to test; the folder holds ${all.length}, ` +
+      `which gives ${learn.length} and ${test.length}.`,
+  );
+  console.error('Lower --learn/--test, or point at a folder with more in it.');
+  process.exit(2);
+}
 console.log(`learn on ${learn.length} older messages, measure on ${test.length} newer\n`);
 
 async function pass(messages, context, label) {
@@ -151,6 +162,39 @@ const observations = taught.map(({ message, trace }) => ({
   decidedBy: trace.decidedBy,
 }));
 const patterns = learnPatterns(observations);
+
+// Why the frequent sources that did *not* become patterns did not. Without
+// this the run reports a number and no way to act on it.
+const bySource = new Map();
+for (const o of observations) {
+  const key = o.listId ? `list:${o.listId}` : `from:${(o.sender || '').toLowerCase()}`;
+  const b = bySource.get(key) ?? { n: 0, categories: new Set(), lowConfidence: 0, cheap: 0 };
+  b.n += 1;
+  b.categories.add(o.category);
+  if (o.decidedBy !== 'llm') b.cheap += 1;
+  else if (o.confidence < 0.85) b.lowConfidence += 1;
+  bySource.set(key, b);
+}
+const rejected = [...bySource.entries()]
+  .filter(([, b]) => b.n >= 3)
+  .filter(([key]) => !patterns.some((p) => key === (p.listId ? `list:${p.listId}` : `from:${p.sender}`)))
+  .sort((a, b) => b[1].n - a[1].n);
+
+if (rejected.length > 0) {
+  console.log(`\n${rejected.length} frequent source(s) yielded no pattern:`);
+  for (const [key, b] of rejected.slice(0, 10)) {
+    const why =
+      b.categories.size > 1
+        ? `disagreed: ${[...b.categories].join('/')}`
+        : b.cheap > 0
+          ? `${b.cheap} decided by a cheaper node`
+          : b.lowConfidence > 0
+            ? `${b.lowConfidence} below the confidence floor`
+            : 'fewer than 3 usable observations';
+    console.log(`  ${String(b.n).padStart(3)}  ${key.slice(0, 52).padEnd(52)} ${why}`);
+  }
+}
+
 console.log(`\n${patterns.length} pattern(s) learned from ${observations.length} decisions:`);
 for (const p of patterns.slice(0, 12)) {
   const key = p.listId ? `list:${p.listId}` : p.sender;
