@@ -141,3 +141,10 @@ export {
   type CorrectionReport,
   type DisputedRoute,
 } from './cascade/corrections.js';
+
+export {
+  runAgent,
+  describePass,
+  type AgentOptions,
+  type AgentPass,
+} from './agent.js';
