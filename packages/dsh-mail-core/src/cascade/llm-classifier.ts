@@ -76,8 +76,18 @@ export const SYSTEM_PROMPT = [
   // that failed to become a learned pattern failed on disagreement rather than
   // on volume. These are the boundaries it disagreed about.
   'Where the boundaries fall, in order. Apply the first that matches:',
-  '1. Is a human waiting on the owner? -> important. A question, a request, a',
-  '   deadline addressed to them. Automated mail is never important.',
+  // Measured against thirty messages the owner labelled themselves. The
+  // earlier rule here was "is a human waiting on the owner?", which called 60%
+  // of a work inbox important where the owner called 33% — because most of a
+  // work inbox *is* humans writing, and being written to is not being asked.
+  '1. Is there an action only the owner can take, that has not been taken?',
+  '   -> important. Something to sign, approve, decide, or answer, where they',
+  '   are the one who must do it.',
+  '   NOT important, however human the sender: a colleague sharing a document,',
+  '   a report, a status update, meeting notes, or a request that is somebody',
+  '   else\'s to fulfil. Being kept informed is `standard`, and most of a work',
+  '   inbox is being kept informed.',
+  '   Automated mail is never important.',
   '2. Is it a record of something that already happened, that the owner may',
   '   need to produce later? -> transactional. Receipts, invoices, order and',
   '   payment confirmations, one-time codes, ticket numbers.',
@@ -86,9 +96,12 @@ export const SYSTEM_PROMPT = [
   '   support-ticket updates. Not transactional: nothing to keep.',
   '4. Is it bulk the owner subscribed to? -> newsletter-tech for editorial or',
   '   technical content, newsletter-promo when the purpose is to sell.',
-  '5. Otherwise, a human wrote to a human and expects nothing -> standard.',
+  '5. Otherwise -> standard. This is the common case, not the leftover: on a',
+  '   real inbox most mail is worth reading and asks nothing.',
   '',
-  'Two rules that decide most of the hard cases:',
+  'Three rules that decide most of the hard cases:',
+  '- Ask who must act. A message that says what someone else has done, or is',
+  '  about to do, is `standard` even when it is addressed to the owner by name.',
   '- A support or service provider writing about an open case is',
   '  newsletter-notification, unless a person there asks the owner a direct',
   '  question, which makes it important.',
