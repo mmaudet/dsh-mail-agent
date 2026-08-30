@@ -32,6 +32,7 @@ create table if not exists traces (
   owner_acted integer not null default 0,
   sender      text,
   list_id     text,
+  filed_to    text,
   decided_by  text    not null,
   category    text    not null,
   confidence  real    not null,
@@ -119,6 +120,14 @@ export class MailStore {
     }
     if (!columns.includes('list_id')) {
       this.db.exec('alter table traces add column list_id text');
+    }
+    // Where the agent actually put the message, as distinct from where its
+    // category says it belongs. Without it a message sitting in the inbox is
+    // ambiguous — the owner may have taken it back, or the move may simply
+    // never have been approved — and a correction cannot be told from an
+    // unexecuted plan.
+    if (!columns.includes('filed_to')) {
+      this.db.exec('alter table traces add column filed_to text');
     }
   }
 
@@ -268,6 +277,53 @@ export class MailStore {
   loadCursor(folder: string): string | null {
     const row = this.db.prepare('select cursor from cursors where folder = ?').get(folder);
     return row === undefined ? null : String((row as { cursor: string }).cursor);
+  }
+
+  /** Notes that a move actually ran, which is what makes a correction legible. */
+  recordFiled(messageId: string, folder: string): void {
+    this.db.prepare('update traces set filed_to = ? where message_id = ?').run(folder, messageId);
+  }
+
+  /**
+   * Everything the agent filed somewhere, with where it put it.
+   *
+   * The caller asks the mailbox where these are now; anything that has moved
+   * is the owner disagreeing, which is the only correction signal a mail agent
+   * gets. Nobody writes to tell it that it was wrong.
+   */
+  filed(limit = 2000): FiledMessage[] {
+    const rows = this.db
+      .prepare(
+        `select message_id, filed_to, category, decided_by, sender, list_id
+           from traces
+          where filed_to is not null
+          order by started_at desc
+          limit ?`,
+      )
+      .all(limit);
+
+    const out: FiledMessage[] = [];
+    for (const raw of rows) {
+      const row = raw as {
+        message_id: string;
+        filed_to: string;
+        category: string;
+        decided_by: string;
+        sender: string | null;
+        list_id: string | null;
+      };
+      const category = toMailCategory(row.category);
+      if (category === null) continue;
+      out.push({
+        messageId: row.message_id,
+        filedTo: row.filed_to,
+        category,
+        decidedBy: row.decided_by as CascadeNode,
+        sender: row.sender,
+        listId: row.list_id,
+      });
+    }
+    return out;
   }
 
   /**
@@ -482,6 +538,16 @@ function toTrace(raw: unknown): DecisionTrace {
     durationMs: row.duration_ms,
     steps: JSON.parse(row.steps) as TraceStep[],
   };
+}
+
+/** One message the agent filed, and where it put it. */
+export interface FiledMessage {
+  readonly messageId: string;
+  readonly filedTo: string;
+  readonly category: MailCategory;
+  readonly decidedBy: CascadeNode;
+  readonly sender: string | null;
+  readonly listId: string | null;
 }
 
 /**

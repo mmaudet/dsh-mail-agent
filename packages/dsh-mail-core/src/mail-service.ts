@@ -50,6 +50,25 @@ export interface MailService {
   currentCursor(folder: string): Promise<string>;
   queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]>;
   getMessages(ids: string[]): Promise<MailMessage[]>;
+  /**
+   * Which folders each of these messages is in now, by id.
+   *
+   * A second addition to the contract PRD section 3.2 states, and like the
+   * first it closes a gap the PRD did not anticipate: the agent could file a
+   * message and never learn that the owner had taken it back out. Every
+   * correction the owner makes is expressed by moving mail, and nothing here
+   * could read that.
+   *
+   * Folders plural, and not one folder, because on Gmail a label is a mailbox
+   * and a message is in several at once. The question a caller actually has is
+   * whether the message is still where it was put, which a set answers and a
+   * single name would have to guess at.
+   *
+   * Ids that no longer resolve are absent from the map rather than reported as
+   * an error: a message deleted since it was filed is an ordinary outcome, and
+   * one the caller has to tell apart from a message that moved.
+   */
+  locate(ids: readonly string[]): Promise<Map<string, string[]>>;
   watchInbox(handler: (evt: MailChange) => void): AsyncDisposable;
   moveMessage(id: string, targetFolder: string): Promise<void>;
   setKeywords(id: string, keywords: string[]): Promise<void>;
@@ -176,6 +195,10 @@ export class MailboxService extends Service implements MailService {
 
   queryChanges(folder: string, sinceCursor: string): Promise<MailChange[]> {
     return this.adapter.queryChanges(folder, sinceCursor);
+  }
+
+  locate(ids: readonly string[]): Promise<Map<string, string[]>> {
+    return this.adapter.locate(ids);
   }
 
   getMessages(ids: string[]): Promise<MailMessage[]> {

@@ -373,6 +373,19 @@ export interface Capabilities {
   readonly threadNative: boolean;
   /** `x-spam-*` headers reach {@link MailMessage.spamHeaders}. */
   readonly spamHeaders: boolean;
+  /**
+   * A message keeps its id when it moves between folders.
+   *
+   * True on JMAP, false on IMAP, where a move assigns a new UID and the id a
+   * plan was made against stops resolving the moment the message leaves.
+   *
+   * It gates the only feedback a mail agent gets. Nobody writes to say the
+   * agent was wrong; the owner just moves the message back, and reading that
+   * means asking where a filed message is now. Where ids are not stable, a
+   * successful filing and an owner's correction look identical, so the
+   * question cannot be asked at all rather than answered badly.
+   */
+  readonly stableIds: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ const JMAP: Capabilities = {
   customKeywords: true,
   threadNative: true,
   spamHeaders: true,
+  stableIds: true,
 };
 
 const IMAP: Capabilities = {
@@ -15,6 +16,7 @@ const IMAP: Capabilities = {
   customKeywords: false,
   threadNative: false,
   spamHeaders: true,
+  stableIds: true,
 };
 
 describe('the plugin declaration', () => {

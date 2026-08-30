@@ -90,12 +90,22 @@ export async function executePlan(
 
   for (const action of automatic) {
     if (dryRun) {
+      // Recorded as would-have-done, and deliberately not as filed: a dry run
+      // touches no mailbox, so claiming the agent put the message somewhere
+      // would manufacture a correction the moment anyone looked for one.
       performed.push(action);
       continue;
     }
     try {
       await perform(action, mailbox);
       performed.push(action);
+      // A move that ran is the agent's claim on record. Where the message is
+      // later is then either agreement or a correction, and without this the
+      // two are indistinguishable from a message whose move was never
+      // approved.
+      if (action.action === 'move' && action.folder !== undefined) {
+        store.recordFiled(action.messageId, action.folder);
+      }
     } catch (err: unknown) {
       // A folder that cannot be created is one message's problem.
       failed.push({ action, error: err instanceof Error ? err.message : String(err) });

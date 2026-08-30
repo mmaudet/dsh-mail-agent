@@ -22,6 +22,7 @@ const JMAP_LIKE: Capabilities = {
   customKeywords: true,
   threadNative: true,
   spamHeaders: true,
+  stableIds: true,
 };
 
 /** Records what it was asked to do, and can be told to refuse. */
@@ -30,12 +31,25 @@ class RecordingMailbox implements MailService {
   readonly capabilities = JMAP_LIKE;
   constructor(private readonly failOn: string | null = null) {}
 
+  /** Where each message has ended up, so a test can move one back. */
+  readonly placed = new Map<string, string[]>();
+
+  locate(ids: readonly string[]): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    for (const id of ids) {
+      const at = this.placed.get(id);
+      if (at !== undefined) out.set(id, at);
+    }
+    return Promise.resolve(out);
+  }
+
   setKeywords(id: string, keywords: string[]): Promise<void> {
     this.calls.push(`keywords:${id}:${keywords.join(',')}`);
     return this.failOn === 'keywords' ? Promise.reject(new Error('nope')) : Promise.resolve();
   }
   moveMessage(id: string, folder: string): Promise<void> {
     this.calls.push(`move:${id}:${folder}`);
+    this.placed.set(id, [folder]);
     return this.failOn === 'move'
       ? Promise.reject(new Error('Newsletters/Tech does not exist'))
       : Promise.resolve();

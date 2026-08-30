@@ -124,6 +124,10 @@ export class ImapAdapter implements MailService {
     customKeywords: false,
     threadNative: false,
     spamHeaders: true,
+    // A move assigns a new UID (RFC 3501), so the id a plan was made against
+    // stops resolving the moment the message leaves. A successful filing and
+    // an owner taking it back are indistinguishable here.
+    stableIds: false,
   };
 
   readonly #imap: ImapConnection;
@@ -216,6 +220,34 @@ export class ImapAdapter implements MailService {
         cursor: encodeCursor({ kind: 'imap', uidValidity: status.uidValidity, lastUid }),
       };
     });
+  }
+
+  /**
+   * Which folders each of these messages is in now, by id.
+   *
+   * An IMAP id encodes the folder it was read from, and a move assigns a new
+   * UID — so this can only confirm that a message is still where its id says,
+   * never find one that has left. `capabilities.stableIds` is false here for
+   * that reason, and a caller reading corrections must check it: absence from
+   * this map means moved *or* deleted *or* filed successfully by the agent
+   * itself, and nothing here can tell those apart.
+   */
+  async locate(ids: readonly string[]): Promise<Map<string, string[]>> {
+    const byFolder = new Map<string, number[]>();
+    for (const id of ids) {
+      const parsed = parseMessageId(id);
+      if (parsed === null) continue;
+      const uids = byFolder.get(parsed.folder) ?? [];
+      uids.push(parsed.uid);
+      byFolder.set(parsed.folder, uids);
+    }
+
+    const out = new Map<string, string[]>();
+    for (const [folder, uids] of byFolder) {
+      const fetched = await this.#imap.fetchByUid(folder, uids);
+      for (const entry of fetched) out.set(messageId(folder, entry.uid), [folder]);
+    }
+    return out;
   }
 
   async getMessages(ids: string[]): Promise<MailMessage[]> {

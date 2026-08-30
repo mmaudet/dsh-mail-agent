@@ -17,6 +17,7 @@ const JMAP_LIKE: Capabilities = {
   customKeywords: true,
   threadNative: true,
   spamHeaders: true,
+  stableIds: true,
 };
 
 const IMAP_LIKE: Capabilities = {
@@ -24,6 +25,7 @@ const IMAP_LIKE: Capabilities = {
   customKeywords: false,
   threadNative: false,
   spamHeaders: true,
+  stableIds: true,
 };
 
 function trace(category: MailCategory, confidence = 1): DecisionTrace {

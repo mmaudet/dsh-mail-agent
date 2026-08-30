@@ -96,6 +96,9 @@ export class JmapAdapter implements MailService {
     customKeywords: true,
     threadNative: true,
     spamHeaders: true,
+    // RFC 8620: an `Email` id is assigned on creation and survives every
+    // change of mailbox, so a filed message can be found again.
+    stableIds: true,
   };
 
   readonly #transport: JmapTransport;
@@ -220,6 +223,27 @@ export class JmapAdapter implements MailService {
       }
     }
     return changes;
+  }
+
+  /** Which folders each of these messages is in now, by id. */
+  async locate(ids: readonly string[]): Promise<Map<string, string[]>> {
+    if (ids.length === 0) return new Map();
+    const [byId, folders] = await Promise.all([this.#mailboxesOf(ids), this.listFolders()]);
+    // Keyed on path rather than leaf name: two folders can share a name —
+    // `Newsletters/Tech` and `Archives/Tech` — and a caller comparing against
+    // what it filed needs the same string it was given.
+    const pathOf = new Map(folders.map((f) => [f.id, f.path]));
+
+    const out = new Map<string, string[]>();
+    for (const [id, mailboxIds] of byId) {
+      const paths: string[] = [];
+      for (const m of mailboxIds) {
+        const path = pathOf.get(m);
+        if (path !== undefined) paths.push(path);
+      }
+      out.set(id, paths);
+    }
+    return out;
   }
 
   /** Which mailboxes each of these messages is in, in one round trip. */

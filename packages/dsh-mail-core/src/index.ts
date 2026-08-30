@@ -133,3 +133,11 @@ export {
   type LearnOptions,
   type Observation,
 } from './cascade/learned-patterns.js';
+
+export {
+  readCorrections,
+  describeCorrections,
+  type Correction,
+  type CorrectionReport,
+  type DisputedRoute,
+} from './cascade/corrections.js';
