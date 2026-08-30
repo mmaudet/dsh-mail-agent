@@ -188,6 +188,7 @@ describe('what a thread was decided to be', () => {
         startedAt: new Date('2026-08-01T00:00:00.000Z'),
       }),
       't1',
+      true,
     );
     db.recordTrace(
       trace({ messageId: 'b', category: 'important', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
@@ -212,7 +213,7 @@ describe('what a thread was decided to be', () => {
     // Node 1 settles at zero cost with no second opinion, so it inherits from
     // a decision rather than from a low-confidence one.
     const db = store();
-    db.recordTrace(trace({ messageId: 'a', category: 'important', confidence: 0.6 }), 't1');
+    db.recordTrace(trace({ messageId: 'a', category: 'important', confidence: 0.6 }), 't1', true);
     expect(db.threadCategory('t1')).toBeNull();
     expect(db.threadCategory('t1', 0.5)).toBe('important');
     db.close();
@@ -229,10 +230,53 @@ describe('what a thread was decided to be', () => {
 
   it('keeps the thread when a message is re-decided', () => {
     const db = store();
-    db.recordTrace(trace({ messageId: 'a', category: 'standard' }), 't1');
-    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1');
+    db.recordTrace(trace({ messageId: 'a', category: 'standard' }), 't1', true);
+    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1', true);
 
     expect(db.threadSize('t1')).toBe(1);
+    expect(db.threadCategory('t1')).toBe('important');
+    db.close();
+  });
+});
+
+describe('node 1 waits for the owner', () => {
+  it('refuses a thread the owner has never acted in', () => {
+    // PRD 4.2 says "a thread where the owner has already acted", and a warm
+    // simulation showed why the weaker reading is dangerous: inheriting into
+    // every thread the classifier has touched amplifies whatever it leans
+    // towards. 61% of a mailbox came back `important`.
+    const db = store();
+    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1');
+    expect(db.threadCategory('t1')).toBeNull();
+    db.close();
+  });
+
+  it('inherits once the owner has replied anywhere in it', () => {
+    const db = store();
+    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1');
+    expect(db.threadCategory('t1')).toBeNull();
+
+    // A later message in the same thread carries the owner's reply.
+    db.recordTrace(trace({ messageId: 'b', category: 'important' }), 't1', true);
+    expect(db.threadCategory('t1')).toBe('important');
+    db.close();
+  });
+
+  it('keeps the owner\'s engagement separate from the category it inherits', () => {
+    // The engagement gates the node; the most recent decision supplies the
+    // answer. They are different messages more often than not.
+    const db = store();
+    db.recordTrace(
+      trace({ messageId: 'a', category: 'standard', startedAt: new Date('2026-08-01T00:00:00.000Z') }),
+      't1',
+      true,
+    );
+    db.recordTrace(
+      trace({ messageId: 'b', category: 'important', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
+      't1',
+      false,
+    );
+
     expect(db.threadCategory('t1')).toBe('important');
     db.close();
   });

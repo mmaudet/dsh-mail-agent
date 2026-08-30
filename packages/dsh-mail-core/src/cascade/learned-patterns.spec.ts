@@ -32,7 +32,7 @@ function seen(
 }
 
 describe('what becomes a pattern', () => {
-  it('learns a sender the model settled the same way three times', () => {
+  it('learns a service the model settled the same way three times', () => {
     const patterns = learnPatterns(seen('news@digest.example', 'newsletter-tech', 3));
 
     expect(patterns).toHaveLength(1);
@@ -48,16 +48,16 @@ describe('what becomes a pattern', () => {
 
 describe('what does not', () => {
   it('refuses two observations: that is a coincidence, not a habit', () => {
-    expect(learnPatterns(seen('a@example.org', 'standard', 2))).toEqual([]);
+    expect(learnPatterns(seen('support@example.org', 'standard', 2))).toEqual([]);
   });
 
-  it('refuses a sender whose decisions disagree', () => {
+  it('refuses a source whose decisions disagree', () => {
     // A sender who is sometimes important and sometimes bulk is exactly the
     // one a pattern must not answer for. Unanimity, not a majority: three
     // samples cannot support a vote.
     const mixed = [
-      ...seen('mixed@example.org', 'standard', 2),
-      ...seen('mixed@example.org', 'important', 1),
+      ...seen('support@mixed.example', 'standard', 2),
+      ...seen('support@mixed.example', 'important', 1),
     ];
     expect(learnPatterns(mixed)).toEqual([]);
   });
@@ -65,14 +65,14 @@ describe('what does not', () => {
   it('refuses evidence the model was unsure about', () => {
     // Learning from an uncertain answer makes it permanent and free, which is
     // the worst of both.
-    const unsure = seen('a@example.org', 'standard', 5, { confidence: 0.6 });
+    const unsure = seen('support@example.org', 'standard', 5, { confidence: 0.6 });
     expect(learnPatterns(unsure)).toEqual([]);
   });
 
   it('refuses decisions a cheaper node made', () => {
     // A message a static rule settles is already free, and learning from one
     // would let that rule's mistake harden into a pattern outliving it.
-    const cheap = seen('a@example.org', 'newsletter-tech', 5, { decidedBy: 'static-rule' });
+    const cheap = seen('news@example.org', 'newsletter-tech', 5, { decidedBy: 'static-rule' });
     expect(learnPatterns(cheap)).toEqual([]);
   });
 
@@ -83,14 +83,14 @@ describe('what does not', () => {
 
 describe('how much a pattern may claim', () => {
   it('never claims more than the decisions it came from', () => {
-    const patterns = learnPatterns(seen('a@example.org', 'standard', 4, { confidence: 0.86 }));
+    const patterns = learnPatterns(seen('support@example.org', 'standard', 4, { confidence: 0.86 }));
     expect(patterns[0]?.confidence).toBeCloseTo(0.86);
   });
 
   it('never reaches certainty, however many times it was seen', () => {
     // Volume makes a pattern eligible, not more certain. A node settling at 1
     // cannot be degraded by node 7 or reviewed by anyone.
-    const patterns = learnPatterns(seen('a@example.org', 'standard', 50, { confidence: 1 }));
+    const patterns = learnPatterns(seen('support@example.org', 'standard', 50, { confidence: 1 }));
     expect(patterns[0]?.confidence).toBe(MAX_PATTERN_CONFIDENCE);
     expect(patterns[0]?.confidence).toBeLessThan(1);
   });
@@ -98,8 +98,8 @@ describe('how much a pattern may claim', () => {
 
 describe('merging with what is already stored', () => {
   it('lets newer evidence replace a sender it is about', () => {
-    const stored = learnPatterns(seen('a@example.org', 'newsletter-promo', 3));
-    const learned = learnPatterns(seen('a@example.org', 'newsletter-tech', 3));
+    const stored = learnPatterns(seen('news@example.org', 'newsletter-promo', 3));
+    const learned = learnPatterns(seen('news@example.org', 'newsletter-tech', 3));
 
     const merged = mergePatterns(stored, learned);
     expect(merged).toHaveLength(1);
@@ -108,12 +108,12 @@ describe('merging with what is already stored', () => {
   });
 
   it('keeps a stored sender the new run said nothing about', () => {
-    const stored = learnPatterns(seen('old@example.org', 'standard', 3));
-    const learned = learnPatterns(seen('new@example.org', 'important', 3));
+    const stored = learnPatterns(seen('alerts@old.example', 'standard', 3));
+    const learned = learnPatterns(seen('alerts@new.example', 'important', 3));
 
     expect(mergePatterns(stored, learned).map((p) => p.sender)).toStrictEqual([
-      'new@example.org',
-      'old@example.org',
+      'alerts@new.example',
+      'alerts@old.example',
     ]);
   });
 });
@@ -172,10 +172,48 @@ describe('mailing lists, which senders cannot represent', () => {
 
   it('keeps list and sender patterns apart when merging', () => {
     const stored = learnPatterns(onList('l.example', 'standard', ['a@x.org', 'b@x.org', 'c@x.org']));
-    const learned = learnPatterns(seen('d@x.org', 'important', 3));
+    const learned = learnPatterns(seen('billing@x.org', 'important', 3));
 
     const merged = mergePatterns(stored, learned);
     expect(merged).toHaveLength(2);
-    expect(merged.map((p) => p.listId ?? p.sender).sort()).toStrictEqual(['d@x.org', 'l.example']);
+    expect(merged.map((p) => p.listId ?? p.sender).sort()).toStrictEqual(['billing@x.org', 'l.example']);
+  });
+});
+
+describe('a person is never learned', () => {
+  it('refuses a colleague, however consistent they look', () => {
+    // The other half of why 61% of a mailbox came back `important`: a
+    // colleague classified that way three times became a rule answering
+    // `important` for everything they ever send.
+    expect(learnPatterns(seen('jrichard@linagora.com', 'important', 5))).toEqual([]);
+  });
+
+  it('learns a service under the same evidence', () => {
+    for (const sender of [
+      'no-reply@service.example',
+      'notifications@github.example',
+      'support@npmjs.example',
+      'ne-pas-repondre@acces.example',
+      'billing@stripe.example',
+    ]) {
+      expect(learnPatterns(seen(sender, 'newsletter-notification', 3))).toHaveLength(1);
+    }
+  });
+
+  it('is not fooled by a person whose name contains a service word', () => {
+    // `newsletters-noreply@` is a service; `bonoreply@` is somebody's surname.
+    expect(learnPatterns(seen('bonoreply@example.org', 'standard', 5))).toEqual([]);
+    expect(learnPatterns(seen('newsletters-noreply@example.org', 'standard', 5))).toHaveLength(1);
+  });
+
+  it('still learns a mailing list, which never goes through the address test', () => {
+    const observations = Array.from({ length: 3 }, (_, i) => ({
+      sender: `person${String(i)}@example.org`,
+      listId: 'l.example',
+      category: 'standard' as const,
+      confidence: 0.9,
+      decidedBy: 'llm' as const,
+    }));
+    expect(learnPatterns(observations)).toHaveLength(1);
   });
 });

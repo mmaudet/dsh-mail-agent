@@ -148,7 +148,11 @@ for (const [index, message] of messages.entries()) {
 
   try {
     const trace = await runCascade(message, { context, model });
-    store.recordTrace(trace, message.threadId);
+    // PRD 4.2 gates node 1 on the owner having acted in the thread. `$answered`
+    // is the server's record of exactly that, and it is the one signal in this
+    // design that reuse cannot inflate.
+    const ownerActed = message.keywords.some((k) => k.toLowerCase() === '$answered');
+    store.recordTrace(trace, message.threadId, ownerActed);
     observations.push({
       sender: message.from[0]?.email ?? '',
       listId: message.listId,

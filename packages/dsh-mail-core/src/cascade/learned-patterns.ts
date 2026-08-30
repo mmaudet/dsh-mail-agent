@@ -100,7 +100,15 @@ export function learnPatterns(
       continue;
     }
     const sender = observation.sender.trim().toLowerCase();
-    if (sender.length > 0) push(bySender, sender, observation);
+    // A person is not a category, and learning one is how a colleague
+    // classified `important` three times becomes a rule answering `important`
+    // for everything they ever send. A warm simulation put 61% of a mailbox
+    // under that label, and this is half of the reason.
+    //
+    // The `List-Id` grouping was the right instinct applied to the other half:
+    // services and lists emit one kind of message and can be learned; an
+    // individual cannot.
+    if (sender.length > 0 && looksAutomated(sender)) push(bySender, sender, observation);
   }
 
   const patterns: LearnedPattern[] = [];
@@ -118,6 +126,25 @@ export function learnPatterns(
     `${a.listId ?? ''}${a.sender ?? ''}`.localeCompare(`${b.listId ?? ''}${b.sender ?? ''}`),
   );
 }
+
+/**
+ * Whether an address looks like a service rather than a person.
+ *
+ * A heuristic, and deliberately a conservative one: it decides what may be
+ * *learned*, so a false negative costs a model call and a false positive
+ * teaches a rule about somebody's colleague. Erring towards the model is the
+ * cheaper mistake.
+ *
+ * Mailing lists do not come through here at all — they group by `List-Id`,
+ * which is a better signal than any address shape.
+ */
+export function looksAutomated(sender: string): boolean {
+  const local = sender.split('@')[0] ?? '';
+  return AUTOMATED_LOCAL.test(local);
+}
+
+const AUTOMATED_LOCAL =
+  /^(?:no[-._]?reply|donotreply|ne[-.]?pas[-.]?repondre|nepasrepondre|notifications?|alerts?|news(?:letter)?s?|mailer|bounce|postmaster|support|contact|info|hello|team|billing|invoices?|accounts?|service|admin|noc|automated?|robot|bot|system|daemon)(?:[-._+].*)?$/i;
 
 function push<T>(map: Map<string, T[]>, key: string, value: T): void {
   const bucket = map.get(key);

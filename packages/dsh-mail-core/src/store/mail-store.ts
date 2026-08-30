@@ -22,6 +22,7 @@ const SCHEMA = `
 create table if not exists traces (
   message_id  text primary key,
   thread_id   text,
+  owner_acted integer not null default 0,
   decided_by  text    not null,
   category    text    not null,
   confidence  real    not null,
@@ -88,6 +89,9 @@ export class MailStore {
       this.db.exec('alter table traces add column thread_id text');
       this.db.exec('create index if not exists traces_thread on traces (thread_id)');
     }
+    if (!columns.includes('owner_acted')) {
+      this.db.exec('alter table traces add column owner_acted integer not null default 0');
+    }
   }
 
   // --- traces ---------------------------------------------------------------
@@ -99,14 +103,21 @@ export class MailStore {
    * and a history of re-decisions is a different feature with different
    * retention questions. What is kept is what the agent currently believes.
    */
-  recordTrace(trace: DecisionTrace, threadId?: string | null): void {
+  /**
+   * @param ownerActed whether the owner has replied in this thread. PRD
+   * section 4.2 makes node 1 conditional on it, and it is the one signal in
+   * the design that reuse cannot inflate: it is a fact about the owner rather
+   * than about the classifier.
+   */
+  recordTrace(trace: DecisionTrace, threadId?: string | null, ownerActed = false): void {
     this.db
       .prepare(
         `insert into traces
-           (message_id, thread_id, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (message_id, thread_id, owner_acted, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict(message_id) do update set
            thread_id = excluded.thread_id,
+           owner_acted = excluded.owner_acted,
            decided_by = excluded.decided_by,
            category = excluded.category,
            confidence = excluded.confidence,
@@ -119,6 +130,7 @@ export class MailStore {
       .run(
         trace.messageId,
         threadId ?? null,
+        ownerActed ? 1 : 0,
         trace.decidedBy,
         trace.category,
         trace.confidence,
@@ -181,6 +193,12 @@ export class MailStore {
    *   guess, and node 1 settles at zero cost with no second opinion.
    * - **The most recent.** A thread that changed character — a notification
    *   thread someone replied to — is described by its latest message.
+   * - **The owner has acted in it.** PRD section 4.2 says so, and a warm
+   *   simulation showed why: without it, node 1 inherits into every thread the
+   *   classifier has touched, and a bias the model holds evenly gets amplified
+   *   evenly — 61% of a mailbox came back `important`. Whether the owner
+   *   replied is a fact about the owner, and the one signal here that reuse
+   *   cannot inflate.
    */
   threadCategory(threadId: string | null, minConfidence = 0.85): MailCategory | null {
     if (threadId === null || threadId.length === 0) return null;
@@ -188,6 +206,7 @@ export class MailStore {
       .prepare(
         `select category from traces
          where thread_id = ? and category <> 'needs-review' and confidence >= ?
+           and exists (select 1 from traces t2 where t2.thread_id = traces.thread_id and t2.owner_acted = 1)
          order by started_at desc limit 1`,
       )
       .get(threadId, minConfidence);
