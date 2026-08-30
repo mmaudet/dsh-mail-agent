@@ -27,6 +27,11 @@ import {
   cleanDraft,
 } from '../packages/dsh-mail-core/dist/index.js';
 
+import { assertBuilt } from './lib/built.mjs';
+
+const PKG = new URL('../packages/dsh-mail-core/', import.meta.url).pathname;
+assertBuilt(PKG);
+
 const args = process.argv.slice(2);
 const arg = (n, d) => {
   const i = args.indexOf(`--${n}`);

@@ -17,6 +17,15 @@
 // this repository. Pass it with --key as
 //   [{ "id": "...", "note": "..." }, ...]
 //
+// Their notes turned out to be retrospective — "je l'ai réalisée", "il
+// suffisait de lui confirmer" — written about mail already dealt with, which is
+// not the forward instruction the interface collects. So --derive also runs a
+// second condition: a model reduces the owner's actual reply to the one line
+// they would have dictated to get it, and the draft is written from that. It is
+// circular by construction, and that is the point — it is the upper bound on
+// what one line can carry, and if a perfect line is not enough then no
+// interface that collects one can work.
+//
 // PERIMETER: this sends the owner's own outgoing mail to the model, which the
 // classifier never did. The banner says so.
 
@@ -32,6 +41,11 @@ import {
   cleanDraft,
 } from '../packages/dsh-mail-core/dist/index.js';
 
+import { assertBuilt } from './lib/built.mjs';
+
+const PKG = new URL('../packages/dsh-mail-core/', import.meta.url).pathname;
+assertBuilt(PKG);
+
 const args = process.argv.slice(2);
 const arg = (n, d) => {
   const i = args.indexOf(`--${n}`);
@@ -39,6 +53,7 @@ const arg = (n, d) => {
 };
 
 const KEY = arg('key', null);
+const DERIVE = args.includes('--derive');
 const MODEL = arg('model', 'mistralai/mistral-small-3.2-24b-instruct');
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
 const OWNER = process.env.MAIL_SENTINEL_OWNER ?? '';
@@ -170,12 +185,53 @@ const overlap = (a, b) => {
 
 const indent = (t) => t.split('\n').join('\n    ').slice(0, 700);
 
+// Reduces a reply to the line that would have produced it. Deliberately not
+// allowed to reuse its wording: an instruction that carries the sentences is
+// not an instruction, it is the answer.
+const DERIVE_SYSTEM = [
+  'Below is a reply somebody sent. Write the single short line they would have',
+  'said out loud to have an assistant draft it for them — what to say, not how',
+  'to say it.',
+  '',
+  'Use your own words. Do not reuse their sentences or their phrasing. Do not',
+  'include a greeting or a sign-off. One line, under twenty words, in French.',
+  'Answer with the line and nothing else.',
+].join('\n');
+
+async function askWith(system, user) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const r = await fetch(`${ENDPOINT}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${APIKEY}` },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0,
+        max_tokens: 120,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      }),
+    });
+    if (r.ok) return (await r.json()).choices?.[0]?.message?.content ?? '';
+    if (r.status !== 429 && r.status < 500) throw new Error(`${String(r.status)}`);
+    await new Promise((res) => setTimeout(res, 2000 * 2 ** attempt));
+  }
+  throw new Error('gave up');
+}
+
 const rows = [];
 for (const { original, theirs, instruction } of pairs) {
   const base = { message: original, category: 'correspondance-commerciale-client', style, owner: OWNER };
   const blind = cleanDraft(await ask(renderDraftRequest(base)));
   const told = cleanDraft(await ask(renderDraftRequest({ ...base, instruction })));
-  rows.push({ theirs, blind, told });
+  let derived = '';
+  let fromDerived = '';
+  if (DERIVE) {
+    derived = (await askWith(DERIVE_SYSTEM, theirs)).trim().split('\n')[0] ?? '';
+    fromDerived = cleanDraft(await ask(renderDraftRequest({ ...base, instruction: derived })));
+  }
+  rows.push({ theirs, blind, told, derived, fromDerived });
 
   console.log('-'.repeat(72));
   console.log(`  ${original.subject.slice(0, 66)}`);
@@ -185,8 +241,15 @@ for (const { original, theirs, instruction } of pairs) {
     `\n  drafted blind (${String(words(blind))} words, ${String(Math.round(overlap(blind, theirs) * 100))}% shared):\n    ${indent(blind)}`,
   );
   console.log(
-    `\n  drafted from the line (${String(words(told))} words, ${String(Math.round(overlap(told, theirs) * 100))}% shared):\n    ${indent(told)}\n`,
+    `\n  drafted from their note (${String(words(told))} words, ${String(Math.round(overlap(told, theirs) * 100))}% shared):\n    ${indent(told)}\n`,
   );
+  if (DERIVE) {
+    const row = rows[rows.length - 1];
+    console.log(`  the line their reply implies:  ${row.derived}`);
+    console.log(
+      `\n  drafted from that line (${String(words(row.fromDerived))} words, ${String(Math.round(overlap(row.fromDerived, theirs) * 100))}% shared):\n    ${indent(row.fromDerived)}\n`,
+    );
+  }
 }
 
 console.log('='.repeat(72));
@@ -203,4 +266,7 @@ console.log(
 console.log(`\n  length, against the owner's median of ${String(style.medianWords)} words`);
 console.log(`    they wrote                ${String(Math.round(mean(rows.map((r) => words(r.theirs))))).padStart(3)}`);
 console.log(`    drafted blind             ${String(Math.round(mean(rows.map((r) => words(r.blind))))).padStart(3)}`);
-console.log(`    given the owner's line    ${String(Math.round(mean(rows.map((r) => words(r.told))))).padStart(3)}`);
+console.log(`    drafted from their note   ${String(Math.round(mean(rows.map((r) => words(r.told))))).padStart(3)}`);
+if (DERIVE) {
+  console.log(`    drafted from a real line  ${String(Math.round(mean(rows.map((r) => words(r.fromDerived))))).padStart(3)}`);
+}

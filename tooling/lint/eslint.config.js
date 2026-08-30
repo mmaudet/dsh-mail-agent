@@ -19,7 +19,7 @@ const repoRoot = path.resolve(import.meta.dirname, '..', '..');
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.d.ts', 'scripts/*.mjs'],
+    ignores: ['**/dist/**', '**/node_modules/**', '**/*.d.ts', 'scripts/**/*.mjs'],
   },
   js.configs.recommended,
   {
