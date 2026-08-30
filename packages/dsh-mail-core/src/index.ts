@@ -210,3 +210,17 @@ export {
   type DraftModel,
   type DraftRequest,
 } from './drafts/draft-reply.js';
+
+export {
+  pending,
+  summarise,
+  describeQueue,
+  answered,
+  ownMessage,
+  addressingOf,
+  type Addressing,
+  type Candidate,
+  type PendingItem,
+  type PendingOptions,
+  type QueueSummary,
+} from './queue/pending.js';
