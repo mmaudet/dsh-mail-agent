@@ -1534,6 +1534,57 @@ remarque qu'il finit toujours par traiter cet alias lui-même.
 
 C'est la conclusion de tout le projet, arrivée par un cinquième chemin.
 
+## §21 — Le brouillon n'est pas faux, il est vide à un seul endroit
+
+Michel-Marie l'avait dit avant qu'on le mesure : donnez à un modèle le corps du
+message et une ligne d'intention, il écrit quelque chose de presque envoyable ;
+les brouillons de l'agent, eux, revenaient impeccables et inutilisables. Dix de
+ses vraies réponses permettent enfin de vérifier, parce qu'on peut rédiger deux
+fois le même message et poser le résultat à côté de ce qu'il a réellement
+envoyé.
+
+| rédigé à partir de | mots de contenu partagés | longueur |
+|---|---|---|
+| du message seul | 34 % | 21 mots |
+| du message et de sa note rétrospective | 41 % | 28 |
+| **du message et d'une ligne qui aurait pu produire la réponse** | **50 %** | 26 |
+| — ce qu'il a écrit | — | 68 |
+
+Sept fois sur huit, la ligne bat le brouillon aveugle. Mais le pourcentage n'est
+pas la découverte. Voici la découverte :
+
+> Bonjour,
+>
+> **[à compléter avec lieu, horaire et personne à contacter pour mardi]**
+>
+> Cordialement, Michel-Marie
+
+La deuxième règle du prompt interdit d'inventer un fait et demande un trou entre
+crochets à la place. Elle fonctionne parfaitement. Le résultat est un brouillon
+percé exactement là où se trouve la réponse. **Rien n'est faux dans ces
+brouillons : ce sont précisément les parties d'une réponse qui n'ont pas besoin
+d'un humain.**
+
+Avec la ligne, le même message donne : *« Le 8 septembre après-midi me
+convient. »* — 83 % de recouvrement, et envoyable tel quel.
+
+Une ligne remplit un crochet. C'est tout le mécanisme, et c'est pourquoi
+l'interface demande une phrase et pas un formulaire.
+
+### La mesure qui ne mesurait rien
+
+Le premier passage de tout ceci comparait deux conditions qui avaient compilé
+vers le même prompt. La machine distante avait trois commits de retard,
+`renderDraftRequest` y ignorait complètement le champ instruction, et l'écart de
+deux points entre « avec » et « sans » était du bruit de température.
+
+Ça ressemblait exactement à un résultat.
+
+Un build périmé n'échoue pas. Il répond, de façon plausible, à propos d'un code
+qui n'existe plus. Il y a maintenant un garde qui refuse de mesurer contre un
+`dist` plus vieux que son `src` — ce qui est, encore une fois, un instrument
+ajouté après qu'un instrument manquant a failli produire une conclusion fausse.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
