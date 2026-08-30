@@ -536,8 +536,8 @@ describe('messagesSince pages past the server cap', () => {
     ];
     let call = 0;
     const transport = {
-      sent: [] as { methodCalls: unknown[][] }[],
-      request(body: { methodCalls: unknown[][] }) {
+      sent: [] as JmapRequest[],
+      request(body: JmapRequest) {
         transport.sent.push(body);
         const name = body.methodCalls[0]?.[0];
         if (name === 'Mailbox/get') {
@@ -561,13 +561,13 @@ describe('messagesSince pages past the server cap', () => {
 
   it('stops at the limit rather than overrunning it', async () => {
     const transport = {
-      request(body: { methodCalls: unknown[][] }) {
+      request(body: JmapRequest) {
         if (body.methodCalls[0]?.[0] === 'Mailbox/get') {
           return Promise.resolve({
             methodResponses: [['Mailbox/get', { list: [{ id: 'f1', name: 'INBOX', parentId: null, role: 'inbox', totalEmails: 0, unreadEmails: 0 }] }, 'c']],
           });
         }
-        const asked = (body.methodCalls[0]?.[1] as { limit: number }).limit;
+        const asked = body.methodCalls[0]?.[1]['limit'] as number;
         return Promise.resolve({
           methodResponses: [['Email/query', { ids: Array.from({ length: asked }, (_, i) => `x${String(i)}`) }, 'q0']],
         });
