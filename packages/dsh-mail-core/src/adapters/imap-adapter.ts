@@ -75,6 +75,13 @@ export interface ImapConnection {
   listMailboxes(): Promise<readonly ImapMailbox[]>;
   /** `UID SEARCH UID <from>:*`, returning the UIDs that exist at or past it. */
   searchFrom(path: string, fromUid: number): Promise<readonly number[]>;
+  /**
+   * `UID SEARCH SINCE <date>`, oldest first.
+   *
+   * RFC 3501 compares dates rather than instants, so the whole of `since`'s
+   * day comes back and the caller narrows it.
+   */
+  searchSince(path: string, since: Date): Promise<readonly number[]>;
   fetchByUid(path: string, uids: readonly number[]): Promise<readonly ImapFetchedMessage[]>;
   moveByUid(path: string, uid: number, target: string): Promise<void>;
   addFlagsByUid(path: string, uid: number, flags: readonly string[]): Promise<void>;
@@ -220,6 +227,35 @@ export class ImapAdapter implements MailService {
         cursor: encodeCursor({ kind: 'imap', uidValidity: status.uidValidity, lastUid }),
       };
     });
+  }
+
+  /**
+   * Message ids in a folder received at or after a date, oldest first.
+   *
+   * `UID SEARCH SINCE` compares dates rather than instants, so the server
+   * returns the whole of `since`'s day. The extra messages are filtered here
+   * against `receivedAt`, which is the one place that can see both what the
+   * caller asked for and what the protocol answered.
+   */
+  async messagesSince(folder: string, since: Date, limit: number): Promise<string[]> {
+    if (limit <= 0) return [];
+    const uids = await this.#imap.searchSince(folder, since);
+    if (uids.length === 0) return [];
+
+    const ids: string[] = [];
+    // Oldest first, and in pages: a week of a busy mailbox is thousands of
+    // messages and fetching their envelopes in one command is how a connection
+    // times out.
+    for (let i = 0; i < uids.length && ids.length < limit; i += 200) {
+      const fetched = await this.#imap.fetchByUid(folder, uids.slice(i, i + 200));
+      for (const entry of fetched) {
+        const message = toMailMessage(entry, folder);
+        if (message.receivedAt < since) continue;
+        ids.push(message.id);
+        if (ids.length >= limit) break;
+      }
+    }
+    return ids;
   }
 
   /**

@@ -31,6 +31,10 @@ const IMAP_LIKE: Capabilities = {
 
 /** Records what the service asked of it; performs no I/O. */
 class RecordingAdapter implements MailService {
+  messagesSince(): Promise<string[]> {
+    return Promise.resolve([]);
+  }
+
   locate(ids: readonly string[]): Promise<Map<string, string[]>> {
     this.calls.push({ op: 'locate', ids: [...ids] } as never);
     return Promise.resolve(new Map<string, string[]>());

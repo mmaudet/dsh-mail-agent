@@ -44,6 +44,10 @@ class FakeConnection implements ImapConnection {
     return Promise.resolve(this.options.mailboxes ?? []);
   }
 
+  searchSince(): Promise<readonly number[]> {
+    return Promise.resolve(this.options.uids ?? []);
+  }
+
   searchFrom(): Promise<readonly number[]> {
     return Promise.resolve(this.options.uids ?? []);
   }

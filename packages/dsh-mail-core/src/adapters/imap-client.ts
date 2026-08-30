@@ -204,6 +204,17 @@ export class ImapFlowConnection implements ImapConnection {
     return found === false ? [] : found.filter((uid) => uid >= fromUid);
   }
 
+  async searchSince(path: string, since: Date): Promise<readonly number[]> {
+    const client = await this.ready();
+    if (this.opened !== path) await this.open(path);
+    // `UID SEARCH SINCE <date>` (RFC 3501 section 6.4.4). The server compares
+    // dates, not instants, so this returns the whole of the first day and the
+    // caller filters — asking for a finer grain than the protocol has would
+    // only move the imprecision somewhere less visible.
+    const found = await client.search({ since }, { uid: true });
+    return found === false ? [] : [...found].sort((a, b) => a - b);
+  }
+
   async fetchByUid(path: string, uids: readonly number[]): Promise<readonly ImapFetchedMessage[]> {
     if (uids.length === 0) return [];
     const client = await this.ready();

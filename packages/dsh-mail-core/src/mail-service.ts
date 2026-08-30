@@ -69,6 +69,26 @@ export interface MailService {
    * one the caller has to tell apart from a message that moved.
    */
   locate(ids: readonly string[]): Promise<Map<string, string[]>>;
+  /**
+   * Message ids in a folder received at or after a date, oldest first.
+   *
+   * The third addition to the contract PRD section 3.2 states, and the one it
+   * named as missing: `queryChanges` needs a cursor, every cursor rides on a
+   * change, and `currentCursor` reports the present — so an agent meeting a
+   * mailbox with history could start from now and nothing else. Backfilling a
+   * week, which is the only way to see a real mix of mail without waiting a
+   * week, had no expression here at all.
+   *
+   * Oldest first because a backfill replays arrival order, and arrival order
+   * is what node 1 and node 3 are built on: a thread's category is inherited
+   * from the message that came before it, and a pattern is three sightings
+   * accumulating. Newest-first would invert both.
+   *
+   * Bounded by `limit`, and the caller pages by moving `since` forward past
+   * what it handled. No cursor, because the point is to reach mail that
+   * predates every cursor there is.
+   */
+  messagesSince(folder: string, since: Date, limit: number): Promise<string[]>;
   watchInbox(handler: (evt: MailChange) => void): AsyncDisposable;
   moveMessage(id: string, targetFolder: string): Promise<void>;
   setKeywords(id: string, keywords: string[]): Promise<void>;
@@ -199,6 +219,10 @@ export class MailboxService extends Service implements MailService {
 
   locate(ids: readonly string[]): Promise<Map<string, string[]>> {
     return this.adapter.locate(ids);
+  }
+
+  messagesSince(folder: string, since: Date, limit: number): Promise<string[]> {
+    return this.adapter.messagesSince(folder, since, limit);
   }
 
   getMessages(ids: string[]): Promise<MailMessage[]> {

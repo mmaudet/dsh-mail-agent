@@ -225,6 +225,28 @@ export class JmapAdapter implements MailService {
     return changes;
   }
 
+  /** Message ids in a folder received at or after a date, oldest first. */
+  async messagesSince(folder: string, since: Date, limit: number): Promise<string[]> {
+    if (limit <= 0) return [];
+    const folderId = await this.#folderId(folder);
+    const response = await this.#call(
+      [JMAP_CORE, JMAP_MAIL],
+      [
+        'Email/query',
+        {
+          accountId: this.#accountId,
+          // RFC 8621 section 4.4.1: `after` is inclusive of the instant given.
+          filter: { inMailbox: folderId, after: since.toISOString() },
+          sort: [{ property: 'receivedAt', isAscending: true }],
+          position: 0,
+          limit,
+        },
+        'q0',
+      ],
+    );
+    return idsOf(readProp(response, 'ids'));
+  }
+
   /** Which folders each of these messages is in now, by id. */
   async locate(ids: readonly string[]): Promise<Map<string, string[]>> {
     if (ids.length === 0) return new Map();

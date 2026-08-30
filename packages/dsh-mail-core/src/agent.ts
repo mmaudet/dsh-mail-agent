@@ -331,3 +331,154 @@ export function describePass(pass: AgentPass): string {
   }
   return lines.join('\n');
 }
+
+// ---------------------------------------------------------------------------
+// Backfill
+// ---------------------------------------------------------------------------
+
+export interface BackfillOptions extends Omit<AgentOptions, 'limit'> {
+  /** Where to start. Messages received at or after this are replayed. */
+  readonly since: Date;
+  /** Most messages to handle in total. */
+  readonly limit?: number | undefined;
+  /** How many to fetch and classify per page. */
+  readonly pageSize?: number | undefined;
+  /** Called after each page, for a caller watching a long replay. */
+  readonly onPage?: ((done: number, total: number) => void) | undefined;
+}
+
+export interface BackfillResult {
+  readonly since: Date;
+  readonly examined: number;
+  readonly classified: readonly DecisionTrace[];
+  readonly alreadyDecided: number;
+  readonly modelUnreachable: number;
+  readonly performed: number;
+  readonly failures: readonly ExecutionFailure[];
+  readonly dryRun: boolean;
+}
+
+/**
+ * Replays a stretch of mail that predates every cursor.
+ *
+ * A running agent sees what arrives; a mailbox with history has everything
+ * else, and until `messagesSince` existed there was no way to reach it. A week
+ * of real traffic is worth more than a week of waiting: node 3 needs three
+ * sightings of a source before it learns anything, and an evening's mail does
+ * not contain three of anything.
+ *
+ * Oldest first and one page at a time, because arrival order is what node 1
+ * and node 3 are built on — a thread inherits from the message before it, and
+ * a pattern is sightings accumulating. Replaying newest-first would invert
+ * both and produce a store that could never have arisen from the mailbox.
+ *
+ * The cursor is deliberately untouched. A backfill reaches backwards; the poll
+ * moves forwards; and a backfill that also moved the cursor would skip
+ * everything that arrived while it ran.
+ */
+export async function backfill(options: BackfillOptions): Promise<BackfillResult> {
+  const { mailbox, store } = options;
+  const folder = options.folder ?? 'INBOX';
+  const policy = options.policy ?? DEFAULT_POLICY;
+  const dryRun = options.dryRun ?? true;
+  const limit = options.limit ?? 1000;
+  const pageSize = Math.min(options.pageSize ?? 50, limit);
+
+  const classified: DecisionTrace[] = [];
+  const failures: ExecutionFailure[] = [];
+  let examined = 0;
+  let skipped = 0;
+  let unreachable = 0;
+  let performed = 0;
+  let cursor = options.since;
+
+  while (examined < limit) {
+    const asked = Math.min(pageSize, limit - examined);
+    const ids = await mailbox.messagesSince(folder, cursor, asked);
+    if (ids.length === 0) break;
+
+    const messages = await mailbox.getMessages(ids);
+    const byId = new Map(messages.map((m) => [m.id, m]));
+    let newest = cursor;
+
+    for (const id of ids) {
+      examined += 1;
+      const message = byId.get(id);
+      if (message === undefined) continue;
+      if (message.receivedAt > newest) newest = message.receivedAt;
+
+      const seenBefore = store.traceFor(id);
+      if (seenBefore !== null && !seenBefore.rationale.startsWith(MODEL_UNREACHABLE)) {
+        skipped += 1;
+        continue;
+      }
+
+      const trace = await runCascade(message, {
+        context: contextFor(message, options),
+        model: options.model,
+        confidenceThreshold: options.confidenceThreshold,
+      });
+      const result = await executePlan(
+        trace,
+        planActions(trace, mailbox.capabilities, policy),
+        mailbox,
+        store,
+        { dryRun, source: sourceOf(message) },
+      );
+      classified.push(trace);
+      performed += result.performed.length;
+      failures.push(...result.failed);
+      if (trace.rationale.startsWith(MODEL_UNREACHABLE)) unreachable += 1;
+    }
+
+    options.onPage?.(examined, limit);
+    // A short page means the folder is exhausted.
+    if (ids.length < asked) break;
+    // One millisecond past the newest handled, and never backwards.
+    // `messagesSince` is inclusive of its instant, so the first page always
+    // contains the message sitting exactly on `since` — an advance conditioned
+    // on the timestamp having moved would stop right there, having handled one
+    // message and called the week done.
+    cursor = new Date(Math.max(newest.getTime(), cursor.getTime()) + 1);
+  }
+
+  return {
+    since: options.since,
+    examined,
+    classified,
+    alreadyDecided: skipped,
+    modelUnreachable: unreachable,
+    performed,
+    failures,
+    dryRun,
+  };
+}
+
+/** What a replay did, for someone watching a long one. */
+export function describeBackfill(result: BackfillResult): string {
+  const free = result.classified.filter((t) => !t.usedModel).length;
+  const lines = [
+    `backfill from ${result.since.toISOString().slice(0, 10)}: ` +
+      `${String(result.examined)} examined, ${String(result.classified.length)} classified` +
+      (result.dryRun ? ' (dry run — nothing was written)' : ' (writing)'),
+  ];
+  if (result.alreadyDecided > 0) {
+    lines.push(`  ${String(result.alreadyDecided)} were already decided`);
+  }
+  if (result.classified.length > 0) {
+    lines.push(
+      `  settled without the model: ${String(free)}/${String(result.classified.length)} ` +
+        `(${String(Math.round((free / result.classified.length) * 100))}%)`,
+    );
+  }
+  if (result.modelUnreachable > 0) {
+    lines.push(`  the model could not be reached for ${String(result.modelUnreachable)}`);
+  }
+  const byCategory = new Map<MailCategory, number>();
+  for (const t of result.classified) byCategory.set(t.category, (byCategory.get(t.category) ?? 0) + 1);
+  for (const [category, n] of [...byCategory.entries()].sort((a, b) => b[1] - a[1])) {
+    lines.push(`    ${String(n).padStart(4)}  ${category}`);
+  }
+  if (result.failures.length > 0) lines.push(`  ${String(result.failures.length)} actions failed`);
+  return lines.join('\n');
+}

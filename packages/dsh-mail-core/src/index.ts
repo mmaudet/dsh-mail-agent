@@ -145,8 +145,12 @@ export {
 export {
   runAgent,
   describePass,
+  backfill,
+  describeBackfill,
   type AgentOptions,
   type AgentPass,
+  type BackfillOptions,
+  type BackfillResult,
 } from './agent.js';
 
 export {

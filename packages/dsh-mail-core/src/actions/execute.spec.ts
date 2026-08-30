@@ -34,6 +34,10 @@ class RecordingMailbox implements MailService {
   /** Where each message has ended up, so a test can move one back. */
   readonly placed = new Map<string, string[]>();
 
+  messagesSince(): Promise<string[]> {
+    return Promise.resolve([]);
+  }
+
   locate(ids: readonly string[]): Promise<Map<string, string[]>> {
     const out = new Map<string, string[]>();
     for (const id of ids) {

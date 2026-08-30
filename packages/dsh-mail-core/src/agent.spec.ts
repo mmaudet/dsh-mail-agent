@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MailStore } from './store/mail-store.js';
-import { runAgent, describePass } from './agent.js';
+import { runAgent, describePass, backfill } from './agent.js';
 import type { CascadeContext, ClassifierModel } from './cascade/types.js';
 import type { MailService } from './mail-service.js';
 import type { Capabilities, MailChange, MailMessage } from './types.js';
@@ -411,6 +411,110 @@ describe('the pass reads what the owner moved back', () => {
 
     const pass = await runAgent({ mailbox: service, store, context: CONTEXT, model });
     expect(pass.corrections).toBeNull();
+    store.close();
+  });
+});
+
+describe('backfill reaches mail that predates every cursor', () => {
+  const at = (day: number): Date => new Date(`2026-08-${String(day).padStart(2, '0')}T09:00:00Z`);
+
+  function archive(days: readonly number[]) {
+    const messages = days.map((d) => message(`m${String(d)}`, { receivedAt: at(d) }));
+    const service = {
+      capabilities: CAPS,
+      messagesSince: (_folder: string, since: Date, limit: number) =>
+        Promise.resolve(
+          messages
+            .filter((m) => m.receivedAt >= since)
+            .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+            .slice(0, limit)
+            .map((m) => m.id),
+        ),
+      getMessages: (ids: string[]) => Promise.resolve(messages.filter((m) => ids.includes(m.id))),
+      setKeywords: () => Promise.resolve(),
+      moveMessage: () => Promise.resolve(),
+      locate: () => Promise.resolve(new Map<string, string[]>()),
+    } as unknown as MailService;
+    return service;
+  }
+
+  it('replays a week oldest first', async () => {
+    // Arrival order is what nodes 1 and 3 are built on: a thread inherits from
+    // the message before it, and a pattern is sightings accumulating.
+    // Newest-first would produce a store that could not have arisen from the
+    // mailbox.
+    const store = new MailStore(':memory:');
+    const result = await backfill({
+      mailbox: archive([24, 25, 26, 27]),
+      store,
+      context: CONTEXT,
+      model,
+      since: at(24),
+      pageSize: 2,
+    });
+
+    expect(result.classified.map((t) => t.messageId)).toStrictEqual(['m24', 'm25', 'm26', 'm27']);
+    store.close();
+  });
+
+  it('pages past the message it just handled rather than re-reading it', async () => {
+    // `messagesSince` is inclusive of its instant, so a page that did not move
+    // the boundary forwards would return the same message for ever.
+    const store = new MailStore(':memory:');
+    const result = await backfill({
+      mailbox: archive([24, 25, 26]),
+      store,
+      context: CONTEXT,
+      model,
+      since: at(24),
+      pageSize: 1,
+    });
+
+    expect(result.examined).toBe(3);
+    expect(result.classified).toHaveLength(3);
+    store.close();
+  });
+
+  it('leaves the poll cursor alone', async () => {
+    // A backfill reaches backwards and the poll moves forwards; a backfill
+    // that moved the cursor would skip everything that arrived while it ran.
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'live');
+    await backfill({
+      mailbox: archive([24, 25]),
+      store,
+      context: CONTEXT,
+      model,
+      since: at(24),
+    });
+
+    expect(store.loadCursor('INBOX')).toBe('live');
+    store.close();
+  });
+
+  it('does not re-decide what the live loop already handled', async () => {
+    const store = new MailStore(':memory:');
+    const mailboxes = archive([24, 25]);
+    await backfill({ mailbox: mailboxes, store, context: CONTEXT, model, since: at(24) });
+    const again = await backfill({ mailbox: mailboxes, store, context: CONTEXT, model, since: at(24) });
+
+    expect(again.classified).toStrictEqual([]);
+    expect(again.alreadyDecided).toBe(2);
+    store.close();
+  });
+
+  it('stops at the limit', async () => {
+    const store = new MailStore(':memory:');
+    const result = await backfill({
+      mailbox: archive([24, 25, 26, 27, 28]),
+      store,
+      context: CONTEXT,
+      model,
+      since: at(24),
+      limit: 2,
+    });
+
+    expect(result.examined).toBe(2);
     store.close();
   });
 });
