@@ -9,3 +9,36 @@
         accountIdEnv: MAIL_SENTINEL_JMAP_ACCOUNT_ID
         identityIdEnv: MAIL_SENTINEL_JMAP_IDENTITY_ID
         sessionUrlEnv: MAIL_SENTINEL_JMAP_SESSION_URL
+        # Where cursors, traces, stated routes and learned patterns live.
+        # Without it nodes 1, 2b and 3 have nothing and decline, which is a
+        # running agent with three of its seven nodes inert.
+        storePath: ${HOME}/.dsh/mail-agent.db
+        cascade:
+          owner: mmaudet@linagora.com
+          corporateDomains: ['linagora.com']
+          provider: mail-llm-economy
+          model: Mistral-Small-3.2-24B-Instruct-2506-FP8
+          # Seeds an empty store and is ignored thereafter: the store is the
+          # record, so a route corrected at runtime is not undone by a restart.
+          routes:
+            # The Twake contact form relays every submission through one
+            # address, so this is all-or-nothing: the real sender is in the
+            # body, and no routing key reaches it.
+            #
+            # Measured over the week of 24 August: 68 of the 76 messages the
+            # model could not classify came from here — 89% of everything it
+            # gave up on, and 13% of the inbox. Learning cannot recover them,
+            # because a pattern saying a sender is always unclassifiable
+            # settles nothing and would stop the model ever being asked again.
+            #
+            # The price, measured on 32 of them: about two are genuine
+            # enquiries from people who filled the form, and those go to Junk
+            # rather than the inbox. Junk, not the trash — recoverable, listed
+            # in the weekly digest, and the correction report says how often it
+            # actually happens.
+            - sender: nple@linagora.com
+              category: spam-formulaire-contact
+              note: >-
+                the Twake contact form relay; 68 of 76 unclassifiable messages
+                in the week of 24 August came from it, and roughly 2 in 32 are
+                genuine enquiries

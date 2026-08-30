@@ -160,3 +160,32 @@ export {
   SYSTEM_PROMPT,
   type LlmClassifierOptions,
 } from './cascade/llm-classifier.js';
+
+export { runCascade, MODEL_UNREACHABLE } from './cascade/cascade-loop.js';
+
+export {
+  approvalFor,
+  describePolicy,
+  DEFAULT_POLICY,
+  type Approval,
+  type ApprovalPolicy,
+  type ApprovalRule,
+  type Decision,
+  type MailAction,
+} from './actions/approval.js';
+
+export {
+  planActions,
+  describePlan,
+  automatic,
+  proposed,
+  type PlannedAction,
+} from './actions/plan.js';
+
+export {
+  executePlan,
+  describeResult,
+  type ExecuteOptions,
+  type ExecutionFailure,
+  type ExecutionResult,
+} from './actions/execute.js';
