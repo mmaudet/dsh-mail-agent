@@ -21,6 +21,7 @@ import { DEFAULT_POLICY, type ApprovalPolicy } from './actions/approval.js';
 import { executePlan, type ExecutionFailure } from './actions/execute.js';
 import { planActions } from './actions/plan.js';
 import { MODEL_UNREACHABLE, runCascade } from './cascade/cascade-loop.js';
+import { readCorrections, type CorrectionReport } from './cascade/corrections.js';
 import type { CascadeContext, ClassifierModel, DecisionTrace } from './cascade/types.js';
 import type { MailService } from './mail-service.js';
 import type { MailStore } from './store/mail-store.js';
@@ -73,6 +74,13 @@ export interface AgentPass {
    * mail produce the same categories and are not the same problem.
    */
   readonly modelUnreachable: number;
+  /** Messages retried because an outage, not the message, produced their verdict. */
+  readonly retried: number;
+  /**
+   * What the owner moved back, or `null` on a server whose ids do not survive
+   * a move — there the question cannot be asked rather than answered badly.
+   */
+  readonly corrections: CorrectionReport | null;
   /**
    * Changed messages the agent had already decided.
    *
@@ -115,6 +123,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
       truncated: false,
       modelUnreachable: 0,
       alreadyDecided: 0,
+      retried: 0,
+      corrections: null,
     };
   }
 
@@ -164,7 +174,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
   const skipped = examined.length - fresh.length;
   const batch = fresh;
 
-  const messages = await mailbox.getMessages(batch);
+  // Messages an outage left unanswered are asked for by name. The poll cannot
+  // surface them: it reports what changed, and nothing changes a message that
+  // was never successfully classified in the first place.
+  const stranded = store
+    .unreachable(MODEL_UNREACHABLE, Math.max(0, limit - batch.length))
+    .filter((id) => !batch.includes(id));
+  const toFetch = [...batch, ...stranded];
+
+  const messages = await mailbox.getMessages(toFetch);
   const byId = new Map(messages.map((m) => [m.id, m]));
 
   const classified: DecisionTrace[] = [];
@@ -173,7 +191,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
   let proposed = 0;
   let unreachable = 0;
 
-  for (const id of batch) {
+  for (const id of toFetch) {
     const message = byId.get(id);
     // Moved or expunged between the poll and the fetch. Ordinary, and not a
     // reason to stop the pass.
@@ -221,6 +239,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     truncated,
     modelUnreachable: unreachable,
     alreadyDecided: skipped,
+    retried: stranded.length,
+    // Read at the end of the pass, on what this pass has just filed as much as
+    // on everything before it. Nobody writes to say the agent was wrong; they
+    // move the message, and a pass that never looked would not know.
+    corrections: mailbox.capabilities.stableIds ? await readCorrections(store, mailbox) : null,
   };
 }
 
@@ -261,7 +284,8 @@ export function describePass(pass: AgentPass): string {
   const mode = pass.dryRun ? 'dry run — nothing was written' : 'writing';
   const lines = [
     `${pass.folder}: ${String(pass.seen)} changed, ${String(pass.classified.length)} classified (${mode})` +
-      (pass.alreadyDecided > 0 ? `, ${String(pass.alreadyDecided)} already decided` : ''),
+      (pass.alreadyDecided > 0 ? `, ${String(pass.alreadyDecided)} already decided` : '') +
+      (pass.retried > 0 ? `, ${String(pass.retried)} retried after an outage` : ''),
   ];
   if (pass.truncated) {
     lines.push('  the limit stopped this pass; the rest wait for the next one');
@@ -291,5 +315,19 @@ export function describePass(pass: AgentPass): string {
     );
   }
   for (const f of pass.failures) lines.push(`  failed: ${f.action.action} ${f.error}`);
+
+  const { corrections } = pass;
+  if (corrections !== null && corrections.corrections.length > 0) {
+    lines.push(
+      `  you moved ${String(corrections.corrections.length)} of ${String(corrections.checked)} filed messages back`,
+    );
+    for (const route of corrections.disputedRoutes) {
+      const source = route.listId ?? route.sender ?? '(unknown)';
+      lines.push(
+        `    your route ${source} -> ${route.category} sent ${String(route.total)} to ` +
+          `${route.filedTo}; you took ${String(route.moved)} back. Only you can change a route.`,
+      );
+    }
+  }
   return lines.join('\n');
 }

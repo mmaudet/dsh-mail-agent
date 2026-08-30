@@ -279,6 +279,26 @@ export class MailStore {
     return row === undefined ? null : String((row as { cursor: string }).cursor);
   }
 
+  /**
+   * Messages whose verdict is not an answer but an outage.
+   *
+   * The poll only reports what changed, and nothing changes a message that was
+   * left `needs-review` because the model could not be reached — so without
+   * asking for them by name, a moment's rate limit becomes permanent for
+   * exactly the mail it happened to hit.
+   */
+  unreachable(marker: string, limit = 200): string[] {
+    const rows = this.db
+      .prepare(
+        `select message_id from traces
+          where rationale like ? || '%'
+          order by started_at asc
+          limit ?`,
+      )
+      .all(marker, limit);
+    return rows.map((raw) => (raw as { message_id: string }).message_id);
+  }
+
   /** Notes that a move actually ran, which is what makes a correction legible. */
   recordFiled(messageId: string, folder: string): void {
     this.db.prepare('update traces set filed_to = ? where message_id = ?').run(folder, messageId);

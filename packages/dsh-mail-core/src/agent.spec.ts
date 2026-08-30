@@ -63,6 +63,8 @@ function message(id: string, over: Partial<MailMessage> = {}): MailMessage {
 
 function mailbox(changes: MailChange[], messages: MailMessage[] = []) {
   const calls: string[] = [];
+  /** Where each message has ended up, so a test can move one back. */
+  const placed = new Map<string, string[]>();
   const service = {
     capabilities: CAPS,
     currentCursor: () => Promise.resolve('now'),
@@ -77,10 +79,19 @@ function mailbox(changes: MailChange[], messages: MailMessage[] = []) {
     },
     moveMessage: (id: string, folder: string) => {
       calls.push(`move:${id}:${folder}`);
+      placed.set(id, [folder]);
       return Promise.resolve();
     },
+    locate: (ids: readonly string[]) => {
+      const out = new Map<string, string[]>();
+      for (const id of ids) {
+        const at = placed.get(id);
+        if (at !== undefined) out.set(id, at);
+      }
+      return Promise.resolve(out);
+    },
   } as unknown as MailService;
-  return { service, calls };
+  return { service, calls, placed };
 }
 
 const change = (id: string, cursor: string): MailChange => ({
@@ -321,6 +332,85 @@ describe('the agent does not chase its own writes', () => {
     const pass = await runAgent({ mailbox: service, store, context: CONTEXT, model });
 
     expect(describePass(pass)).toContain('1 already decided');
+    store.close();
+  });
+});
+
+describe('an outage does not become a permanent verdict', () => {
+  it('asks again about a message the poll will never report', async () => {
+    // The retry added earlier only fired if the message came back through the
+    // poll, and nothing changes a message that was never classified. The 429
+    // from the first real run had frozen a notification at `needs-review` with
+    // no way back.
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    let down = true;
+    const flaky: ClassifierModel = {
+      classify: () =>
+        down
+          ? Promise.reject(new Error('429 rate limited'))
+          : Promise.resolve({ category: 'veille-newsletter', confidence: 0.9, rationale: 'r' }),
+    };
+
+    const arrival = mailbox([change('a', 'c1')], [message('a')]);
+    await runAgent({ mailbox: arrival.service, store, context: CONTEXT, model: flaky });
+    expect(store.traceFor('a')?.category).toBe('needs-review');
+
+    // The next poll reports nothing at all, as it would in reality.
+    down = false;
+    const quiet = mailbox([], [message('a')]);
+    const pass = await runAgent({ mailbox: quiet.service, store, context: CONTEXT, model: flaky });
+
+    expect(pass.retried).toBe(1);
+    expect(store.traceFor('a')?.category).toBe('veille-newsletter');
+    store.close();
+  });
+
+  it('stops retrying once the answer is an answer', async () => {
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    const { service } = mailbox([change('a', 'c1')], [message('a')]);
+
+    await runAgent({ mailbox: service, store, context: CONTEXT, model });
+    const quiet = mailbox([], [message('a')]);
+    const pass = await runAgent({ mailbox: quiet.service, store, context: CONTEXT, model });
+
+    expect(pass.retried).toBe(0);
+    expect(pass.classified).toHaveLength(0);
+    store.close();
+  });
+});
+
+describe('the pass reads what the owner moved back', () => {
+  it('reports a correction against a stated route, with its total', async () => {
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    store.saveRoutes([
+      { listId: null, sender: 'news@example.org', category: 'spam-formulaire-contact' },
+    ]);
+    const { service } = mailbox([change('a', 'c1')], [message('a')]);
+    // The route settles it and the policy files it, unattended.
+    await runAgent({ mailbox: service, store, context: CONTEXT, model, dryRun: false });
+
+    // The owner takes it back out.
+    const moved = mailbox([], [message('a')]);
+    moved.placed.set('a', ['INBOX']);
+
+    const pass = await runAgent({ mailbox: moved.service, store, context: CONTEXT, model });
+    expect(pass.corrections?.corrections).toHaveLength(1);
+    expect(pass.corrections?.disputedRoutes[0]?.sender).toBe('news@example.org');
+    expect(describePass(pass)).toContain('Only you can change a route.');
+    store.close();
+  });
+
+  it('asks nothing on a server whose ids do not survive a move', async () => {
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    const { service } = mailbox([], []);
+    (service as unknown as { capabilities: unknown }).capabilities = { ...CAPS, stableIds: false };
+
+    const pass = await runAgent({ mailbox: service, store, context: CONTEXT, model });
+    expect(pass.corrections).toBeNull();
     store.close();
   });
 });
