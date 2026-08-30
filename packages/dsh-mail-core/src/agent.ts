@@ -21,6 +21,7 @@ import { DEFAULT_POLICY, type ApprovalPolicy } from './actions/approval.js';
 import { executePlan, type ExecutionFailure } from './actions/execute.js';
 import { planActions } from './actions/plan.js';
 import { MODEL_UNREACHABLE, runCascade } from './cascade/cascade-loop.js';
+import { learn } from './cascade/learn.js';
 import { readCorrections, type CorrectionReport } from './cascade/corrections.js';
 import type { CascadeContext, ClassifierModel, DecisionTrace } from './cascade/types.js';
 import type { MailService } from './mail-service.js';
@@ -345,10 +346,23 @@ export interface BackfillOptions extends Omit<AgentOptions, 'limit'> {
   readonly pageSize?: number | undefined;
   /** Called after each page, for a caller watching a long replay. */
   readonly onPage?: ((done: number, total: number) => void) | undefined;
+  /**
+   * Run a learning pass between pages, as a live agent does between polls.
+   *
+   * On by default, and the replay is close to meaningless without it. Ordering
+   * the pages oldest-first exists so that patterns accumulate and later mail
+   * benefits from earlier mail; learning only at the end means node 3 reads an
+   * empty list for the whole replay, every message reaches the model, and the
+   * efficiency measured is a cold agent's however long the week was. Measured:
+   * 74 messages replayed, 0 settled without the model, 0 patterns held.
+   */
+  readonly learnBetweenPages?: boolean | undefined;
 }
 
 export interface BackfillResult {
   readonly since: Date;
+  /** Patterns node 3 held by the end of the replay. */
+  readonly patterns: number;
   readonly examined: number;
   readonly classified: readonly DecisionTrace[];
   readonly alreadyDecided: number;
@@ -431,6 +445,8 @@ export async function backfill(options: BackfillOptions): Promise<BackfillResult
       if (trace.rationale.startsWith(MODEL_UNREACHABLE)) unreachable += 1;
     }
 
+    // Between pages, as a live agent learns between polls. A page is a pass.
+    if (options.learnBetweenPages !== false) learn(store);
     options.onPage?.(examined, limit);
     // A short page means the folder is exhausted.
     if (ids.length < asked) break;
@@ -444,6 +460,7 @@ export async function backfill(options: BackfillOptions): Promise<BackfillResult
 
   return {
     since: options.since,
+    patterns: store.loadPatterns().length,
     examined,
     classified,
     alreadyDecided: skipped,
@@ -470,6 +487,7 @@ export function describeBackfill(result: BackfillResult): string {
       `  settled without the model: ${String(free)}/${String(result.classified.length)} ` +
         `(${String(Math.round((free / result.classified.length) * 100))}%)`,
     );
+    lines.push(`  patterns held at the end: ${String(result.patterns)}`);
   }
   if (result.modelUnreachable > 0) {
     lines.push(`  the model could not be reached for ${String(result.modelUnreachable)}`);

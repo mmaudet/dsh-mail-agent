@@ -518,3 +518,70 @@ describe('backfill reaches mail that predates every cursor', () => {
     store.close();
   });
 });
+
+describe('a replay learns as it goes, or it measures a cold agent', () => {
+  const at = (day: number, hour = 9): Date =>
+    new Date(`2026-08-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00Z`);
+
+  function fromOneSender(count: number) {
+    const messages = Array.from({ length: count }, (_, i) =>
+      message(`s${String(i)}`, {
+        receivedAt: at(24, i),
+        from: [{ name: null, email: 'digest@example.org' }],
+      }),
+    );
+    return {
+      capabilities: CAPS,
+      messagesSince: (_f: string, since: Date, limit: number) =>
+        Promise.resolve(
+          messages
+            .filter((m) => m.receivedAt >= since)
+            .sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime())
+            .slice(0, limit)
+            .map((m) => m.id),
+        ),
+      getMessages: (ids: string[]) => Promise.resolve(messages.filter((m) => ids.includes(m.id))),
+      setKeywords: () => Promise.resolve(),
+      moveMessage: () => Promise.resolve(),
+      locate: () => Promise.resolve(new Map<string, string[]>()),
+    } as unknown as MailService;
+  }
+
+  it('lets later mail benefit from earlier mail', async () => {
+    // Ordering the replay oldest-first exists for this. Learning only at the
+    // end means node 3 reads an empty list for the whole week, every message
+    // reaches the model, and what is measured is a cold agent however long the
+    // history was — observed on a real replay: 74 messages, 0 settled free.
+    const store = new MailStore(':memory:');
+    const result = await backfill({
+      mailbox: fromOneSender(8),
+      store,
+      context: CONTEXT,
+      model,
+      since: at(24, 0),
+      pageSize: 4,
+    });
+
+    expect(result.patterns).toBe(1);
+    const free = result.classified.filter((t) => !t.usedModel).length;
+    expect(free).toBeGreaterThan(0);
+    store.close();
+  });
+
+  it('measures a cold agent when told not to learn', async () => {
+    const store = new MailStore(':memory:');
+    const result = await backfill({
+      mailbox: fromOneSender(8),
+      store,
+      context: CONTEXT,
+      model,
+      since: at(24, 0),
+      pageSize: 4,
+      learnBetweenPages: false,
+    });
+
+    expect(result.patterns).toBe(0);
+    expect(result.classified.every((t) => t.usedModel)).toBe(true);
+    store.close();
+  });
+});
