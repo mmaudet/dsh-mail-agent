@@ -27,6 +27,7 @@ const CONTEXT: CascadeContext = {
   vipSenders: [],
   corporateDomains: [],
   threadCategory: null,
+  statedRoutes: [],
   learnedPatterns: [],
 };
 

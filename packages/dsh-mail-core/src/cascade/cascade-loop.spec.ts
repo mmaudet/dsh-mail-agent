@@ -32,6 +32,7 @@ const CONTEXT: CascadeContext = {
   vipSenders: ['ceo@corp.example.com'],
   corporateDomains: ['corp.example.com'],
   threadCategory: null,
+  statedRoutes: [],
   learnedPatterns: CORPUS_LEARNED_PATTERNS,
 };
 
@@ -622,6 +623,7 @@ describe('bulk mail with no sub-category signal is not guessed at', () => {
       {
         context: {
           ...CONTEXT,
+          statedRoutes: [],
           learnedPatterns: [
             { listId: 'discuss.lists.example', sender: null, subjectContains: null, category: 'liste-diffusion', confidence: 0.9 },
           ],
@@ -649,6 +651,7 @@ describe('node 3 recognises a mailing list', () => {
     const trace = await runCascade(message, {
       context: {
         ...CONTEXT,
+        statedRoutes: [],
         learnedPatterns: [
           { listId: LIST, sender: null, subjectContains: null, category: 'rapport-compte-rendu-interne', confidence: 0.9 },
         ],
@@ -667,6 +670,7 @@ describe('node 3 recognises a mailing list', () => {
     const trace = await runCascade(message, {
       context: {
         ...CONTEXT,
+        statedRoutes: [],
         learnedPatterns: [
           { listId: LIST, sender: null, subjectContains: null, category: 'demande-interne', confidence: 0.9 },
         ],
@@ -677,6 +681,83 @@ describe('node 3 recognises a mailing list', () => {
     // Nothing has been learned about this list, and no static rule claims it,
     // so it reaches the model. What matters is that the pattern learned for
     // one list did not leak onto another.
+    expect(trace.decidedBy).toBe('llm');
+  });
+});
+
+describe('a route the owner stated beats anything the agent works out', () => {
+  const relay = (id: string): MailMessage =>
+    msg({ id, from: [{ name: 'Twake App', email: 'nple@linagora.com' }], subject: 'Twake App - Contact Form' });
+
+  it('settles without a model call, at confidence 1', async () => {
+    // Measured on the target mailbox: 31 of 36 contact-form notifications come
+    // from this one address, and the cheap model resolves almost none of them
+    // — it answered `needs-review` on 30. A stated fact costs nothing and is
+    // right.
+    const trace = await runCascade(relay('s1'), {
+      context: {
+        ...CONTEXT,
+        statedRoutes: [
+          { listId: null, sender: 'nple@linagora.com', category: 'spam-formulaire-contact', note: 'the Twake contact form relay' },
+        ],
+      },
+      model: FORBIDDEN_MODEL,
+    });
+
+    expect(trace.decidedBy).toBe('stated-route');
+    expect(trace.category).toBe('spam-formulaire-contact');
+    expect(trace.confidence).toBe(1);
+    expect(trace.rationale).toBe('the Twake contact form relay');
+  });
+
+  it('runs before the learned patterns, so an inference cannot overrule it', async () => {
+    const trace = await runCascade(relay('s2'), {
+      context: {
+        ...CONTEXT,
+        statedRoutes: [{ listId: null, sender: 'nple@linagora.com', category: 'spam-formulaire-contact' }],
+        learnedPatterns: [
+          { listId: null, sender: 'nple@linagora.com', subjectContains: null, category: 'correspondance-commerciale-client', confidence: 0.95 },
+        ],
+      },
+      model: FORBIDDEN_MODEL,
+    });
+
+    expect(trace.decidedBy).toBe('stated-route');
+    expect(trace.category).toBe('spam-formulaire-contact');
+  });
+
+  it('prefers the list over the sender, as the store keys them', async () => {
+    // A list is what has the category: its messages come from many senders, so
+    // a sender route for one of them must not decide the list's mail.
+    const trace = await runCascade(
+      msg({ id: 's3', listId: 'license-review.lists.example', from: [{ name: 'Alex', email: 'alex@members.example' }] }),
+      {
+        context: {
+          ...CONTEXT,
+          statedRoutes: [
+            { listId: null, sender: 'alex@members.example', category: 'correspondance-commerciale-client' },
+            { listId: 'license-review.lists.example', sender: null, category: 'liste-diffusion' },
+          ],
+        },
+        model: FORBIDDEN_MODEL,
+      },
+    );
+
+    expect(trace.category).toBe('liste-diffusion');
+  });
+
+  it('declines when nothing matches, rather than picking the nearest', async () => {
+    const trace = await runCascade(
+      msg({ id: 's4', from: [{ name: 'Someone', email: 'other@linagora.com' }] }),
+      {
+        context: {
+          ...CONTEXT,
+          statedRoutes: [{ listId: null, sender: 'nple@linagora.com', category: 'spam-formulaire-contact' }],
+        },
+        model: modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' }),
+      },
+    );
+
     expect(trace.decidedBy).toBe('llm');
   });
 });

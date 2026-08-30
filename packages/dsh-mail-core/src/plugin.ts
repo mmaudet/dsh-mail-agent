@@ -14,6 +14,7 @@ import * as mailPing from './tools/mail-ping.js';
 import * as classifyEmail from './tools/classify-email.js';
 import type { ClassifyEmailOptions } from './tools/classify-email.js';
 import { createLlmClassifier } from './cascade/llm-classifier.js';
+import type { RoutingRule } from './cascade/types.js';
 
 /**
  * Configuration carries environment-variable *names*, never values: the
@@ -41,6 +42,15 @@ export interface CascadeSettings {
   readonly owner: string;
   readonly vipSenders?: readonly string[] | undefined;
   readonly corporateDomains?: readonly string[] | undefined;
+  /**
+   * Routes the owner states, seeded into the store on first run.
+   *
+   * The store is where they live once seeded, so that a route can be added or
+   * corrected without a restart and without an edit to a file under version
+   * control. This list is the seed, not the record: after the first run,
+   * changing it changes nothing.
+   */
+  readonly routes?: readonly RoutingRule[] | undefined;
   /** Registered LLM route for node 6, for example `mail-llm-economy`. */
   readonly provider: string;
   readonly model: string;
@@ -187,6 +197,9 @@ function cascadeOptions(settings: CascadeSettings, ctx: Context): ClassifyEmailO
       owner: settings.owner,
       vipSenders: settings.vipSenders ?? [],
       corporateDomains: settings.corporateDomains ?? [],
+      // Seeded from the profile, then owned by the store. A tool classifying
+      // one message in isolation has no store, so it gets the seed.
+      statedRoutes: settings.routes ?? [],
       // Both are per-message facts the caller supplies; a tool that classifies
       // one message in isolation has neither.
       threadCategory: null,

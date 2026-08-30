@@ -15,7 +15,13 @@
 
 import { DatabaseSync } from 'node:sqlite';
 
-import type { CascadeNode, DecisionTrace, LearnedPattern, TraceStep } from '../cascade/types.js';
+import type {
+  CascadeNode,
+  DecisionTrace,
+  LearnedPattern,
+  RoutingRule,
+  TraceStep,
+} from '../cascade/types.js';
 import { toMailCategory, type MailCategory } from '../types.js';
 
 const SCHEMA = `
@@ -39,6 +45,15 @@ create table if not exists cursors (
   folder     text primary key,
   cursor     text not null,
   updated_at text not null
+);
+
+create table if not exists routes (
+  key      text primary key,
+  list_id  text,
+  sender   text,
+  category text not null,
+  note     text,
+  added_at text not null
 );
 
 create table if not exists patterns (
@@ -237,6 +252,65 @@ export class MailStore {
     return row === undefined ? null : String((row as { cursor: string }).cursor);
   }
 
+  // --- stated routes --------------------------------------------------------
+
+  /**
+   * Replaces the stored routes with this set.
+   *
+   * A different table from `patterns`, and that is the whole point:
+   * `savePatterns` deletes its set on every learning pass, and a stated route
+   * living there would be destroyed by a routine nobody would think to check
+   * before running.
+   */
+  saveRoutes(routes: readonly RoutingRule[]): void {
+    const now = new Date().toISOString();
+    this.db.exec('begin');
+    try {
+      this.db.exec('delete from routes');
+      const insert = this.db.prepare(
+        'insert or replace into routes (key, list_id, sender, category, note, added_at) values (?, ?, ?, ?, ?, ?)',
+      );
+      for (const r of routes) {
+        insert.run(routeKey(r), r.listId ?? null, r.sender, r.category, r.note ?? null, now);
+      }
+      this.db.exec('commit');
+    } catch (err: unknown) {
+      this.db.exec('rollback');
+      throw err;
+    }
+  }
+
+  loadRoutes(): RoutingRule[] {
+    const rows = this.db.prepare('select * from routes order by key').all();
+    const routes: RoutingRule[] = [];
+    for (const raw of rows) {
+      const row = raw as {
+        list_id: string | null;
+        sender: string | null;
+        category: string;
+        note: string | null;
+      };
+      const category = toMailCategory(row.category);
+      // A route naming a category the vocabulary no longer has is skipped
+      // rather than guessed at. Unlike a learned pattern, nothing will replace
+      // it: the owner stated it and only the owner can restate it.
+      if (category === null) continue;
+      routes.push({
+        listId: row.list_id,
+        sender: row.sender,
+        category,
+        note: row.note ?? undefined,
+      });
+    }
+    return routes;
+  }
+
+  /** How many routes are stored, so a caller can tell seeded from empty. */
+  countRoutes(): number {
+    const row = this.db.prepare('select count(*) as n from routes').get() as { n: number };
+    return row.n;
+  }
+
   // --- learned patterns -----------------------------------------------------
 
   /**
@@ -256,10 +330,7 @@ export class MailStore {
          values (?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const p of patterns) {
-        const key =
-          p.listId !== null && p.listId !== undefined
-            ? `list:${p.listId.toLowerCase()}`
-            : `from:${(p.sender ?? '').toLowerCase()}`;
+        const key = routeKey(p);
         insert.run(
           key,
           p.listId ?? null,
@@ -334,4 +405,17 @@ function toTrace(raw: unknown): DecisionTrace {
     durationMs: row.duration_ms,
     steps: JSON.parse(row.steps) as TraceStep[],
   };
+}
+
+/**
+ * What identifies a source, for either table.
+ *
+ * Shared so a stated route and a learned pattern for the same sender cannot
+ * disagree about what they are keyed on — which would let both exist and only
+ * one be found.
+ */
+function routeKey(rule: { readonly listId?: string | null | undefined; readonly sender: string | null }): string {
+  return rule.listId !== null && rule.listId !== undefined
+    ? `list:${rule.listId.toLowerCase()}`
+    : `from:${(rule.sender ?? '').toLowerCase()}`;
 }

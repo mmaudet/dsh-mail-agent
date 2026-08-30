@@ -6,6 +6,11 @@
  * number.
  */
 
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
 import { describe, expect, it } from 'vitest';
 
 import type { DecisionTrace, LearnedPattern } from '../cascade/types.js';
@@ -279,5 +284,69 @@ describe('node 1 waits for the owner', () => {
 
     expect(db.threadCategory('t1')).toBe('demande-interne');
     db.close();
+  });
+});
+
+describe('stated routes are not learned patterns', () => {
+  it('survives a learning pass, which replaces the whole pattern set', () => {
+    // The reason routes live in their own table. `savePatterns` deletes
+    // everything it finds before writing, and a stated route sharing that
+    // table would be destroyed by a routine nobody would think to check.
+    const store = new MailStore(':memory:');
+    store.saveRoutes([
+      { listId: null, sender: 'nple@linagora.com', category: 'spam-formulaire-contact', note: 'the Twake contact form relay' },
+    ]);
+    store.savePatterns([
+      { listId: null, sender: 'someone@example.org', subjectContains: null, category: 'veille-newsletter', confidence: 0.9 },
+    ]);
+
+    expect(store.loadRoutes()).toHaveLength(1);
+    expect(store.loadRoutes()[0]?.sender).toBe('nple@linagora.com');
+    store.close();
+  });
+
+  it('keeps the note, because a surprising route has to carry its reason', () => {
+    // Measured on the target mailbox: the company's own `vente@` alias routes
+    // to spam, because contact-form submissions transit through it. Without
+    // the note, the next person to read the table deletes it.
+    const store = new MailStore(':memory:');
+    store.saveRoutes([
+      { listId: null, sender: 'vente@linagora.com', category: 'phishing-arnaque', note: 'contact-form spam transits this alias' },
+    ]);
+    expect(store.loadRoutes()[0]?.note).toBe('contact-form spam transits this alias');
+    store.close();
+  });
+
+  it('drops a route naming a category the vocabulary no longer has', () => {
+    // Written through a second connection to the same file rather than through
+    // the store's own handle: reaching into a private field to set up a test
+    // makes the test pass for a reason the class does not promise.
+    const file = join(mkdtempSync(join(tmpdir(), 'mail-store-')), 'store.db');
+    const store = new MailStore(file);
+    store.saveRoutes([{ listId: null, sender: 'a@example.org', category: 'veille-newsletter' }]);
+    store.close();
+
+    const raw = new DatabaseSync(file);
+    raw.exec("update routes set category = 'newsletter-promo'");
+    raw.close();
+
+    // Unlike a learned pattern, nothing will replace it: the owner stated it,
+    // and only the owner can restate it.
+    const reopened = new MailStore(file);
+    expect(reopened.loadRoutes()).toStrictEqual([]);
+    expect(reopened.countRoutes()).toBe(1);
+    reopened.close();
+  });
+
+  it('keys a list route the same way a pattern is keyed', () => {
+    // One key function for both tables, so a route and a pattern for the same
+    // source cannot disagree about what identifies them.
+    const store = new MailStore(':memory:');
+    store.saveRoutes([
+      { listId: 'License-Review.Lists.Example', sender: null, category: 'liste-diffusion' },
+      { listId: 'license-review.lists.example', sender: null, category: 'veille-newsletter' },
+    ]);
+    expect(store.countRoutes()).toBe(1);
+    store.close();
   });
 });

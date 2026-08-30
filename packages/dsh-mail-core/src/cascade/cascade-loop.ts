@@ -129,6 +129,14 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
   // 2. Spam prefilter — decided on headers, before any other logic.
   if (settled === null) await runNode('spam-prefilter', () => spamPrefilter(message));
 
+  // 2b. Stated routes — what the owner told the agent, before anything it
+  //     worked out for itself. Ahead of the learned patterns because an
+  //     inference should never overrule an assertion, and ahead of the static
+  //     rules because every generic rule tried on this mailbox turned out to
+  //     be guessing (`List-Unsubscribe`, then `List-Id`) while a table of
+  //     owner-stated routes covers 33% of it.
+  if (settled === null) await runNode('stated-route', () => statedRoute(message, context));
+
   // 3. Learned patterns — before the static rules on purpose, so a case the
   //    owner has always filed one way is answered that way before a generic
   //    rule gets a chance (PRD section 4.2).
@@ -242,6 +250,42 @@ function spamPrefilter(message: MailMessage): NodeVerdict | null {
   // Grey (and clean) both decline: the prefilter defers them to be decided
   // later, which is exactly what node 6 exists for.
   return null;
+}
+
+/**
+ * Node 2b: a route the owner stated settles the message, at confidence 1.
+ *
+ * Confidence 1 without qualification, which no inferring node is allowed:
+ * the owner is not guessing about their own mail. It means node 7 cannot
+ * degrade it and the approval floors are all cleared — a stated route is the
+ * one path where an owner can arm an automatic action deliberately.
+ *
+ * A `List-Id` route wins over a sender route for the same message, matching
+ * the key `MailStore` stores them under: a list is what has the category, and
+ * its messages come from many senders.
+ */
+function statedRoute(message: MailMessage, context: CascadeContext): NodeVerdict | null {
+  if (context.statedRoutes.length === 0) return null;
+  const listId = message.listId?.toLowerCase() ?? null;
+  const sender = firstFrom(message)?.email.toLowerCase() ?? null;
+
+  const byList = listId === null
+    ? undefined
+    : context.statedRoutes.find(
+        (r) => r.listId !== null && r.listId !== undefined && r.listId.toLowerCase() === listId,
+      );
+  const hit = byList ?? (sender === null
+    ? undefined
+    : context.statedRoutes.find((r) => r.sender !== null && r.sender.toLowerCase() === sender));
+  if (hit === undefined) return null;
+
+  return {
+    category: hit.category,
+    confidence: 1,
+    rationale: hit.note ?? (byList === undefined
+      ? 'the owner routes this sender here'
+      : 'the owner routes this mailing list here'),
+  };
 }
 
 /** Node 3: a learned sender or subject pattern settles the message. */

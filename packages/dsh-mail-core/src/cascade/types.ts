@@ -18,6 +18,7 @@ import type { MailCategory, MailMessage } from '../types.js';
 export type CascadeNode =
   | 'thread-continuity'
   | 'spam-prefilter'
+  | 'stated-route'
   | 'learned-pattern'
   | 'static-rule'
   | 'brand-spoofing'
@@ -27,6 +28,7 @@ export type CascadeNode =
 export const CASCADE_NODES = [
   'thread-continuity',
   'spam-prefilter',
+  'stated-route',
   'learned-pattern',
   'static-rule',
   'brand-spoofing',
@@ -75,6 +77,46 @@ export interface CascadeContext {
   readonly threadCategory: MailCategory | null;
   /** Patterns learned per owner (PRD section 4.2, node 3). */
   readonly learnedPatterns: readonly LearnedPattern[];
+  /**
+   * Routes the owner stated, checked before anything is inferred.
+   *
+   * Measured on the target mailbox: a table keyed on `List-Id`, falling back to
+   * the sender address, covers 33% of the mail with 36 rules — against the 3%
+   * the inferring nodes settle cold. Every generic rule tried on this mailbox
+   * failed (`List-Unsubscribe` and `List-Id` both claimed to hold everywhere
+   * and did not); what holds is facts about one owner.
+   *
+   * Separate from `learnedPatterns` on purpose. They have the same shape and
+   * the same use, but `savePatterns` replaces its whole set on every learning
+   * pass, and a stated route sharing that table would be deleted by a routine
+   * nobody would think to check.
+   */
+  readonly statedRoutes: readonly RoutingRule[];
+}
+
+/**
+ * A route the owner asserted, rather than one observed.
+ *
+ * No confidence field: a stated route is the owner telling the agent a fact
+ * about their own mail, and there is nothing to be unsure about. That is also
+ * why it is never pruned — the weekly review prunes what it inferred, not what
+ * it was told.
+ */
+export interface RoutingRule {
+  /** Matched against the message's RFC 2919 `List-Id`, case-insensitively. */
+  readonly listId?: string | null | undefined;
+  /** Matched against the sender's full address, case-insensitively. */
+  readonly sender: string | null;
+  readonly category: MailCategory;
+  /**
+   * Why the owner stated it, for the day they no longer remember.
+   *
+   * Measured need: on the target mailbox the company's own `vente@` alias
+   * routes to `phishing-arnaque`, because contact-form spam transits through
+   * it. A rule that surprising has to carry its reason or it gets deleted by
+   * the next person who reads the table.
+   */
+  readonly note?: string | undefined;
 }
 
 /**
