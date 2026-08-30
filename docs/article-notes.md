@@ -1235,6 +1235,38 @@ ni en `To` ni en `Cc`. Sur cette boîte, l'importance n'est pas une propriété 
 message. C'est une propriété de la position du propriétaire dans une
 conversation.
 
+### Le levier évident, mesuré avant d'être construit
+
+La section précédente désignait le correctif : donner au nœud l'état du fil
+qu'on lui demande déjà d'évaluer. Il a été mesuré avant d'être écrit — la
+dernière hypothèse testée avant construction, la position du destinataire,
+était revenue inversée, et une sonde coûte moins cher qu'une release.
+
+Celle-ci revient pire qu'inversée. Sur les trente : « le propriétaire a déjà
+écrit dans ce fil » se déclenche sur **un** message. La longueur du fil pointe
+dans le mauvais sens (40 % des `important` contre 61 % des `standard`), et
+au-delà de deux messages elle ne sépare plus rien.
+
+Vérification que la fonctionnalité n'était pas simplement non testée : sur ce
+serveur James, les messages envoyés se regroupent-ils avec les reçus ? Oui — sur
+28 fils échantillonnés depuis Sent, 22 contiennent autre chose que le message
+envoyé. Le signal est disponible. Il n'est pas là.
+
+À l'échelle, sur 768 messages plutôt que trente : 43 % sont dans un fil de plus
+d'un message, 10 % dans un fil où le propriétaire a écrit un jour, et **7 % dans
+un fil où il avait écrit avant l'arrivée du message**.
+
+**La fonctionnalité est structurellement indisponible au moment de la
+décision.** On classe un message quand il arrive ; la réponse du propriétaire,
+si elle vient, vient après. « A-t-il agi ? » posé à l'arrivée est une question
+sur le futur, et sur 93 % de la boîte la réponse est trivialement non.
+
+La seconde moitié de la règle que j'avais écrite — *une action que lui seul peut
+faire, **et qui n'a pas été faite*** — n'est donc pas seulement non alimentée.
+Elle est presque toujours vraie par construction. Câbler `owner_acted` dans le
+rendu aurait ajouté une colonne identique sur 93 % du courrier : deux heures de
+plomberie pour ne rien changer, évitées par vingt minutes de comptage.
+
 ### La leçon de méthode
 
 Le correctif a été écrit *avant* d'avoir la mesure, pendant que la passerelle
@@ -1246,6 +1278,11 @@ seul le repli de taxonomie le montre — la métrique à huit catégories affich
 C'est la même erreur que les trois précédentes du projet, sous une forme
 nouvelle : une mesure réelle dont la *description* est fausse. Ici la
 description fausse était « le prompt s'est amélioré ».
+
+Et la contre-mesure a tenu deux fois de suite dans la même session : le
+correctif suivant — l'état du fil — a été compté avant d'être codé, et il ne
+valait rien. Le réflexe n'est pas d'avoir de bonnes hypothèses, c'est de les
+faire payer d'avance.
 
 ## Still missing for the article
 

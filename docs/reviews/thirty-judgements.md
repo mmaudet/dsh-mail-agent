@@ -174,6 +174,48 @@ the prompt: eight categories are specified in PRD section 4.2, three are used.
 The `List-Id` learning, the newsletter sub-categories, the three newsletter
 folders are all machinery serving splits nobody makes.
 
+## The obvious next lever, tested before it was built
+
+The section above ended by naming the fix: feed the node the thread state it is
+already being asked about. That was measured before it was written, because the
+last hypothesis this project tested before building — recipient position — came
+back inverted, and one probe cost less than a release.
+
+It came back worse than inverted. On the thirty:
+
+| feature | important | standard |
+|---|---|---|
+| owner wrote in this thread before | 10% | 0% |
+| thread longer than one message | 40% | 61% |
+| thread longer than two messages | 40% | 39% |
+
+The one feature pointing the right way fires on a single message out of thirty.
+Thread length points the wrong way, and past two messages it separates nothing.
+
+First check whether the feature was merely untested rather than refuted: on this
+James server, do sent messages thread with received ones at all? They do — of 28
+threads sampled from Sent, 22 contain more than the sent message. The signal is
+available, and it is not there.
+
+Measured across 768 inbox messages rather than thirty:
+
+| | count | share |
+|---|---|---|
+| in a thread with more than one message | 333 | 43% |
+| in a thread the owner ever wrote in | 76 | 10% |
+| **owner wrote before this message arrived** | **55** | **7%** |
+
+**The feature is structurally unavailable at the moment the decision is made.**
+A message is classified when it arrives; the owner's reply, if it ever comes,
+comes after. "Has the owner acted?" asked at arrival is a question about the
+future, and on 93% of the inbox the answer is trivially no.
+
+So the second half of the rule I wrote — *an action only the owner can take,
+**that has not been taken*** — is not merely unfed. It is nearly always true by
+construction, and wiring `owner_acted` into the render would have added a column
+that reads the same on 93% of the mail. Two hours of plumbing to change nothing,
+avoided by twenty minutes of counting.
+
 ## What was kept, and why
 
 The v3 prompt is committed. Not because it scored better — on the measurement
@@ -181,5 +223,12 @@ that counts it did not — but because its distribution matches the owner's and 
 miscalibrated base makes every later experiment unreadable. It is a better
 starting point, not a better classifier, and the commit says so.
 
-What it does not do is close this. The next experiment is not another prompt.
-It is giving the node the thread state it is already being asked about.
+What it does not do is close this, and the next experiment is now neither
+another prompt nor thread state. Both have been measured and neither moves the
+boundary.
+
+What is left is the taxonomy, and it is the largest single item: 11 of v3's 22
+errors are messages filed into categories the owner never used once. That is
+half the error budget spent on distinctions that, on this evidence, do not exist
+for this user — and unlike the prompt and the thread, it is not a question this
+repository can answer by measuring. It is a question for the owner.
