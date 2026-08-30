@@ -36,6 +36,20 @@ export interface DraftRequest {
   readonly category: MailCategory;
   readonly style: StyleProfile;
   readonly owner: string;
+  /**
+   * One line from the owner saying what to answer.
+   *
+   * The measurement that produced this: drafts written from the message alone
+   * were right in style and empty in substance, because what to say is not in
+   * the message. The owner supplies it in a sentence — spoken or typed — and
+   * the model supplies the words.
+   *
+   * It also carries the owner's authority, which nothing else in a draft does.
+   * Absent, the draft may acknowledge and propose but never commit; present,
+   * it may commit exactly what the instruction says, because the owner just
+   * said it.
+   */
+  readonly instruction?: string | undefined;
 }
 
 export interface Draft {
@@ -62,9 +76,11 @@ export const DRAFT_SYSTEM_PROMPT = [
   '   attachment. If answering properly needs something only the owner knows,',
   '   leave a bracketed gap — [date] — rather than filling it. A draft with a',
   '   gap is edited in five seconds; an invented date is sent and is wrong.',
-  '3. Never agree to anything on the owner\'s behalf. You may acknowledge, ask,',
-  '   confirm receipt, and propose that the owner will do something. You may',
-  '   not accept, commit, quote a price, or promise a deadline.',
+  '3. If the owner gave an instruction below, it is what to say, and it is the',
+  '   only thing you may commit to on their behalf. Say that and stop: do not',
+  '   add a courtesy offer, a next step, or an availability they did not give',
+  '   you. With no instruction, you may acknowledge, ask and confirm receipt,',
+  '   and you may not accept, commit, quote a price, or promise a deadline.',
   '4. Match the length below. These replies are short. A long draft is not more',
   '   helpful; it is more to delete.',
   '5. Write as the owner, in the first person, never about them.',
@@ -74,7 +90,7 @@ export const DRAFT_SYSTEM_PROMPT = [
 
 /** The user-side message: the style, then the mail being answered. */
 export function renderDraftRequest(request: DraftRequest): string {
-  const { message } = request;
+  const { message, instruction } = request;
   const from = message.from[0];
   const sender = from === undefined ? '(unknown)' : `${from.name ?? ''} <${from.email}>`.trim();
   // The body is not truncated as hard as the classifier's. A classifier needs
@@ -82,18 +98,26 @@ export function renderDraftRequest(request: DraftRequest): string {
   // and the ask is often at the bottom.
   const body = (message.bodyText ?? message.preview).slice(0, 4000);
 
+  // The instruction comes last, immediately before the answer is written,
+  // because a model asked to hold a rule across four thousand characters of
+  // somebody else's prose holds it less well than one reminded of it at the end.
+  const told = instruction !== undefined && instruction.trim() !== '';
   return [
     describeStyle(request.style),
     '',
     '---',
     '',
-    `This message has been classified ${request.category}, meaning the owner is`,
-    'expected to act on it. Draft their reply.',
+    told
+      ? 'Draft the owner\'s reply to the message below. What to say is at the end.'
+      : `This message has been classified ${request.category}, meaning the owner is\nexpected to act on it. Draft their reply.`,
     '',
     `From: ${sender}`,
     `Subject: ${message.subject}`,
     '',
     body,
+    ...(told
+      ? ['', '---', '', 'The owner says to answer this, in their words:', '', instruction.trim()]
+      : []),
   ].join('\n');
 }
 
@@ -124,12 +148,17 @@ export async function draftReply(
   request: DraftRequest,
   model: DraftModel,
 ): Promise<Draft | null> {
-  if (!draftable(request.category)) return null;
+  const told = request.instruction !== undefined && request.instruction.trim() !== '';
+  // The category decides what to offer unprompted. It does not get to veto a
+  // reply the owner has asked for: they have seen the message and said write.
+  if (!told && !draftable(request.category)) return null;
   const raw = await model.draft(request);
   const bodyText = cleanDraft(raw);
   if (bodyText.length === 0) return null;
   return {
     bodyText,
-    because: `${request.category}: the owner is expected to answer this`,
+    because: told
+      ? `the owner asked for this reply: ${request.instruction?.trim() ?? ''}`
+      : `${request.category}: the owner is expected to answer this`,
   };
 }
