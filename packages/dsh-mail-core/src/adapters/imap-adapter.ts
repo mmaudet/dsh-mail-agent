@@ -12,6 +12,7 @@ import type { MailService } from '../mail-service.js';
 import {
   decodeCursor,
   encodeCursor,
+  listIdOf,
   type Capabilities,
   type DraftMessage,
   type FolderRole,
@@ -441,6 +442,7 @@ function toMailMessage(entry: ImapFetchedMessage, folder: string): MailMessage {
     hasAttachments: entry.hasAttachments,
     spamHeaders: spamHeaders(entry.headers),
     listUnsubscribe: unsubscribeTargets(entry.headers),
+    listId: listIdOf(entry.headers['list-id']),
   };
 }
 

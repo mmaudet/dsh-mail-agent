@@ -275,17 +275,27 @@ function spamPrefilter(message: MailMessage): NodeVerdict | null {
 function learnedPatterns(message: MailMessage, context: CascadeContext): NodeVerdict | null {
   const sender = firstFrom(message)?.email.toLowerCase() ?? '';
   const subject = message.subject.toLowerCase();
+  const listId = message.listId?.toLowerCase() ?? null;
   for (const pattern of context.learnedPatterns) {
+    // A list id is the strongest of the three: it names a source, where a
+    // sender names one participant in it.
+    const listHit =
+      pattern.listId !== null &&
+      pattern.listId !== undefined &&
+      listId !== null &&
+      listId === pattern.listId.toLowerCase();
     // Full-address equality, per the contract in `types.ts`: a pattern learned
     // for `veille@partenaire.example` must not fire on a crafted address that
     // merely contains it.
     const senderHit = pattern.sender !== null && sender === pattern.sender.toLowerCase();
     const subjectHit = pattern.subjectContains !== null && subject.includes(pattern.subjectContains.toLowerCase());
-    if (senderHit || subjectHit) {
+    if (listHit || senderHit || subjectHit) {
       return {
         category: pattern.category,
         confidence: pattern.confidence,
-        rationale: 'matches a learned pattern for this owner',
+        rationale: listHit
+          ? 'matches a learned mailing list for this owner'
+          : 'matches a learned pattern for this owner',
       };
     }
   }

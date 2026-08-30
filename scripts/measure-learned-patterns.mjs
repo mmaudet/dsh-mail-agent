@@ -145,6 +145,7 @@ const taught = await pass(learn, baseContext, 'learning pass ');
 
 const observations = taught.map(({ message, trace }) => ({
   sender: message.from[0]?.email ?? '',
+  listId: message.listId,
   category: trace.category,
   confidence: trace.confidence,
   decidedBy: trace.decidedBy,
@@ -152,7 +153,8 @@ const observations = taught.map(({ message, trace }) => ({
 const patterns = learnPatterns(observations);
 console.log(`\n${patterns.length} pattern(s) learned from ${observations.length} decisions:`);
 for (const p of patterns.slice(0, 12)) {
-  console.log(`  ${p.category.padEnd(24)} ${p.sender}  (${p.confidence.toFixed(2)})`);
+  const key = p.listId ? `list:${p.listId}` : p.sender;
+  console.log(`  ${p.category.padEnd(24)} ${key}  (${p.confidence.toFixed(2)})`);
 }
 if (patterns.length > 12) console.log(`  … and ${patterns.length - 12} more`);
 console.log();

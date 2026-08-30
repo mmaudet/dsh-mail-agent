@@ -20,6 +20,8 @@ import type { CascadeNode, LearnedPattern } from './types.js';
 export interface Observation {
   /** Full sender address, lowercased by {@link learnPatterns}. */
   readonly sender: string;
+  /** RFC 2919 `List-Id`, when the message carried one. */
+  readonly listId?: string | null | undefined;
   readonly category: MailCategory;
   readonly confidence: number;
   readonly decidedBy: CascadeNode;
@@ -78,41 +80,72 @@ export function learnPatterns(
   const minConfidence = options.minConfidence ?? MIN_CONFIDENCE;
   const maxConfidence = options.maxConfidence ?? MAX_PATTERN_CONFIDENCE;
 
+  // Two groupings, and the list one matters more: a mailing list's messages
+  // come from many senders, so grouping them by sender scatters the evidence
+  // across people who each appear once. Measured on the target inbox, the
+  // largest recurring source is a list that sender patterns could not see at
+  // all.
+  const byList = new Map<string, Observation[]>();
   const bySender = new Map<string, Observation[]>();
+
   for (const observation of observations) {
     if (observation.decidedBy !== 'llm') continue;
     if (observation.confidence < minConfidence) continue;
+
+    const listId = observation.listId?.trim().toLowerCase();
+    if (listId !== undefined && listId.length > 0) {
+      push(byList, listId, observation);
+      // A message that belongs to a list teaches about the list, not about
+      // whoever happened to post it.
+      continue;
+    }
     const sender = observation.sender.trim().toLowerCase();
-    if (sender.length === 0) continue;
-    const bucket = bySender.get(sender);
-    if (bucket === undefined) bySender.set(sender, [observation]);
-    else bucket.push(observation);
+    if (sender.length > 0) push(bySender, sender, observation);
   }
 
   const patterns: LearnedPattern[] = [];
+  for (const [listId, bucket] of byList) {
+    const pattern = agree(bucket, minObservations, maxConfidence);
+    if (pattern !== null) patterns.push({ listId, sender: null, subjectContains: null, ...pattern });
+  }
   for (const [sender, bucket] of bySender) {
-    if (bucket.length < minObservations) continue;
-
-    const category = bucket[0]?.category;
-    if (category === undefined) continue;
-    // Unanimity, not a majority. Three samples cannot support a vote, and a
-    // sender who is sometimes important and sometimes bulk is exactly the one
-    // a pattern must not answer for.
-    if (!bucket.every((o) => o.category === category)) continue;
-
-    const mean = bucket.reduce((sum, o) => sum + o.confidence, 0) / bucket.length;
-    patterns.push({
-      sender,
-      subjectContains: null,
-      category,
-      // Never above what the decisions themselves claimed, and never above the
-      // ceiling. Volume makes a pattern eligible, not more certain.
-      confidence: Math.min(mean, maxConfidence),
-    });
+    const pattern = agree(bucket, minObservations, maxConfidence);
+    if (pattern !== null) patterns.push({ listId: null, sender, subjectContains: null, ...pattern });
   }
 
   // Stable order, so a stored set does not churn between runs.
-  return patterns.sort((a, b) => (a.sender ?? '').localeCompare(b.sender ?? ''));
+  return patterns.sort((a, b) =>
+    `${a.listId ?? ''}${a.sender ?? ''}`.localeCompare(`${b.listId ?? ''}${b.sender ?? ''}`),
+  );
+}
+
+function push<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const bucket = map.get(key);
+  if (bucket === undefined) map.set(key, [value]);
+  else bucket.push(value);
+}
+
+/**
+ * The category a bucket unanimously supports, or `null`.
+ *
+ * Unanimity, not a majority. Three samples cannot support a vote, and a source
+ * that is sometimes important and sometimes bulk is exactly the one a pattern
+ * must not answer for.
+ */
+function agree(
+  bucket: readonly Observation[],
+  minObservations: number,
+  maxConfidence: number,
+): { category: MailCategory; confidence: number } | null {
+  if (bucket.length < minObservations) return null;
+  const category = bucket[0]?.category;
+  if (category === undefined) return null;
+  if (!bucket.every((o) => o.category === category)) return null;
+
+  const mean = bucket.reduce((sum, o) => sum + o.confidence, 0) / bucket.length;
+  // Never above what the decisions themselves claimed, and never above the
+  // ceiling. Volume makes a pattern eligible, not more certain.
+  return { category, confidence: Math.min(mean, maxConfidence) };
 }
 
 /**
@@ -126,12 +159,19 @@ export function mergePatterns(
   stored: readonly LearnedPattern[],
   learned: readonly LearnedPattern[],
 ): LearnedPattern[] {
-  const bySender = new Map<string, LearnedPattern>();
-  for (const pattern of stored) {
-    if (pattern.sender !== null) bySender.set(pattern.sender.toLowerCase(), pattern);
+  const byKey = new Map<string, LearnedPattern>();
+  const keyOf = (p: LearnedPattern): string | null =>
+    p.listId !== null && p.listId !== undefined
+      ? `list:${p.listId.toLowerCase()}`
+      : p.sender !== null
+        ? `from:${p.sender.toLowerCase()}`
+        : null;
+
+  for (const pattern of [...stored, ...learned]) {
+    const key = keyOf(pattern);
+    if (key !== null) byKey.set(key, pattern);
   }
-  for (const pattern of learned) {
-    if (pattern.sender !== null) bySender.set(pattern.sender.toLowerCase(), pattern);
-  }
-  return [...bySender.values()].sort((a, b) => (a.sender ?? '').localeCompare(b.sender ?? ''));
+  return [...byKey.values()].sort((a, b) =>
+    `${a.listId ?? ''}${a.sender ?? ''}`.localeCompare(`${b.listId ?? ''}${b.sender ?? ''}`),
+  );
 }

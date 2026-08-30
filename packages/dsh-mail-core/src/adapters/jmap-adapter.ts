@@ -13,6 +13,7 @@ import type { MailService } from '../mail-service.js';
 import {
   decodeCursor,
   encodeCursor,
+  listIdOf,
   type Capabilities,
   type DraftMessage,
   type FolderRole,
@@ -557,6 +558,7 @@ function toMailMessage(value: unknown, folders: ReadonlyMap<string, string>): Ma
     hasAttachments: readProp(value, 'hasAttachment') === true,
     spamHeaders: spamHeaders(value),
     listUnsubscribe: unsubscribeTargets(readProp(value, 'header:list-unsubscribe:asText')),
+    listId: listIdOf(headerNamed(value, 'list-id')),
   };
 }
 
@@ -616,6 +618,16 @@ function spamHeaders(value: unknown): Readonly<Record<string, string>> {
     }
   }
   return headers;
+}
+
+/** One header by name, from the list the adapter asks for, or `null`. */
+function headerNamed(value: unknown, name: string): string | null {
+  for (const entry of asArray(readProp(value, 'headers'))) {
+    if (asString(readProp(entry, 'name'))?.toLowerCase() === name) {
+      return asString(readProp(entry, 'value'));
+    }
+  }
+  return null;
 }
 
 /** Split a `List-Unsubscribe` header into its bracketed targets (RFC 2369). */

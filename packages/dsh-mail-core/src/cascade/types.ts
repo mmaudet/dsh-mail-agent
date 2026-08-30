@@ -84,6 +84,14 @@ export interface CascadeContext {
  * is a later phase, so nothing here writes them.
  */
 export interface LearnedPattern {
+  /**
+   * Matched against the message's RFC 2919 `List-Id`, case-insensitively.
+   *
+   * Checked before the sender, because a list is the thing that has a
+   * category: its messages come from many people, and on a real inbox the
+   * largest recurring source is a list no sender pattern could ever catch.
+   */
+  readonly listId?: string | null | undefined;
   /** Matched against the sender's full address, case-insensitively. */
   readonly sender: string | null;
   /** Matched as a case-insensitive substring of the subject. */

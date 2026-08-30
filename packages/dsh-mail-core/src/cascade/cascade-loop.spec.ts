@@ -260,6 +260,7 @@ function msg(overrides: Partial<MailMessage> & Pick<MailMessage, 'id'>): MailMes
     hasAttachments: false,
     spamHeaders: {},
     listUnsubscribe: [],
+    listId: null,
     ...overrides,
   };
 }
@@ -583,5 +584,48 @@ describe('bulk mail with no sub-category signal is not guessed at', () => {
       expect(trace.decidedBy).toBe('static-rule');
       expect(trace.category).toBe(expected);
     }
+  });
+});
+
+describe('node 3 recognises a mailing list', () => {
+  const LIST = 'license-review.lists.example';
+
+  it('settles a list posting whoever sent it', async () => {
+    const message = msg({
+      id: 'r22',
+      from: [{ name: 'Someone New', email: 'never-seen@example.org' }],
+      subject: 'Re: For Approval',
+      listId: LIST,
+    });
+
+    const trace = await runCascade(message, {
+      context: {
+        ...CONTEXT,
+        learnedPatterns: [
+          { listId: LIST, sender: null, subjectContains: null, category: 'standard', confidence: 0.9 },
+        ],
+      },
+      model: FORBIDDEN_MODEL,
+    });
+
+    expect(trace.decidedBy).toBe('learned-pattern');
+    expect(trace.category).toBe('standard');
+  });
+
+  it('does not settle a message from another list', async () => {
+    const message = msg({ id: 'r23', listId: 'other.lists.example', subject: 'Hello' });
+    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+
+    const trace = await runCascade(message, {
+      context: {
+        ...CONTEXT,
+        learnedPatterns: [
+          { listId: LIST, sender: null, subjectContains: null, category: 'important', confidence: 0.9 },
+        ],
+      },
+      model,
+    });
+
+    expect(trace.decidedBy).toBe('llm');
   });
 });

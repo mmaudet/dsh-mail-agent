@@ -117,3 +117,65 @@ describe('merging with what is already stored', () => {
     ]);
   });
 });
+
+describe('mailing lists, which senders cannot represent', () => {
+  function onList(
+    listId: string,
+    category: Observation['category'],
+    senders: readonly string[],
+  ): Observation[] {
+    return senders.map((sender) => ({
+      sender,
+      listId,
+      category,
+      confidence: 0.9,
+      decidedBy: 'llm' as const,
+    }));
+  }
+
+  it('learns a list from messages by different people', () => {
+    // The case sender patterns structurally cannot reach: each person posts
+    // once, so grouping by sender scatters the evidence and learns nothing.
+    const observations = onList('license-review.lists.example', 'standard', [
+      'a@example.org',
+      'b@example.org',
+      'c@example.org',
+    ]);
+
+    expect(learnPatterns(observations.map((o) => ({ ...o, listId: null })))).toEqual([]);
+
+    const patterns = learnPatterns(observations);
+    expect(patterns).toHaveLength(1);
+    expect(patterns[0]?.listId).toBe('license-review.lists.example');
+    expect(patterns[0]?.sender).toBeNull();
+  });
+
+  it('does not also learn the people who posted to it', () => {
+    // A message on a list teaches about the list. Learning the poster too
+    // would answer for their direct mail on the strength of a list posting.
+    const observations = onList('l.example', 'standard', ['a@x.org', 'a@x.org', 'a@x.org']);
+    const patterns = learnPatterns(observations);
+
+    expect(patterns).toHaveLength(1);
+    expect(patterns[0]?.listId).toBe('l.example');
+  });
+
+  it('refuses a list the model classified inconsistently', () => {
+    // Measured on the target inbox: the model answered `standard` on one
+    // message of a list and `newsletter-tech` on another.
+    const mixed = [
+      ...onList('l.example', 'standard', ['a@x.org', 'b@x.org']),
+      ...onList('l.example', 'newsletter-tech', ['c@x.org']),
+    ];
+    expect(learnPatterns(mixed)).toEqual([]);
+  });
+
+  it('keeps list and sender patterns apart when merging', () => {
+    const stored = learnPatterns(onList('l.example', 'standard', ['a@x.org', 'b@x.org', 'c@x.org']));
+    const learned = learnPatterns(seen('d@x.org', 'important', 3));
+
+    const merged = mergePatterns(stored, learned);
+    expect(merged).toHaveLength(2);
+    expect(merged.map((p) => p.listId ?? p.sender).sort()).toStrictEqual(['d@x.org', 'l.example']);
+  });
+});

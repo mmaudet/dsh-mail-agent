@@ -166,6 +166,18 @@ export interface MailMessage extends Envelope {
   readonly spamHeaders: Readonly<Record<string, string>>;
   /** `List-Unsubscribe` targets (RFC 2369), in header order. */
   readonly listUnsubscribe: readonly string[];
+  /**
+   * The mailing list this message belongs to (RFC 2919 `List-Id`), or `null`.
+   *
+   * The identifier only, unbracketed: `List-Id: Licence review
+   * <license-review.lists.example>` yields `license-review.lists.example`.
+   *
+   * Carried because a list is the unit of recurrence a sender is not. Its
+   * messages come from many people, and the category belongs to the list
+   * rather than to any of them — measured on the target inbox, where the
+   * largest recurring source is a list no sender pattern could ever catch.
+   */
+  readonly listId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,4 +311,19 @@ export interface DraftMessage {
   readonly inReplyTo: string | null;
   /** `References` chain to carry over, oldest first. */
   readonly references: readonly string[];
+}
+
+/**
+ * The identifier out of an RFC 2919 `List-Id` header, lowercased.
+ *
+ * `Licence review <license-review.lists.example>` yields
+ * `license-review.lists.example`. A header with no bracketed identifier is not
+ * a usable list id — the description alone is free text and two lists may share
+ * it — so it yields `null` rather than something that looks like an id.
+ */
+export function listIdOf(header: string | null | undefined): string | null {
+  if (header === null || header === undefined) return null;
+  const bracketed = /<([^>]+)>/.exec(header);
+  const id = bracketed?.[1]?.trim().toLowerCase();
+  return id === undefined || id.length === 0 ? null : id;
 }

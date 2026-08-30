@@ -57,6 +57,7 @@ function message(overrides: Partial<MailMessage> & Pick<MailMessage, 'id'>): Mai
     hasAttachments: false,
     spamHeaders: {},
     listUnsubscribe: [],
+    listId: null,
     ...overrides,
   };
 }
