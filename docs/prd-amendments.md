@@ -160,6 +160,50 @@ environment variable*. There is no `dsh:secret:` URI scheme.
 
 ---
 
+## 9. §4.2 — the eight categories are not this mailbox's, in either direction
+
+The eight are the PRD's largest single divergence, and unlike the others it is
+not a detail of a protocol. They were specified before anyone had classified a
+real message, and two independent measurements have now said they are wrong.
+
+**Too many, then too few.** Labelling thirty of their own messages blind, the
+owner used three, and half the classifier's errors were mail filed into
+categories they never used once. Reducing the vocabulary to three was then
+started and abandoned fifteen messages into a second labelling run: three cannot
+annotate this mailbox either.
+
+Neither eight nor three came from the mail. Sixteen do — derived from 400 real
+messages, with 97% coverage measured rather than assumed
+(`docs/reviews/sixteen-categories.md`).
+
+**What the eight get wrong is not their number.** The rule that produced the
+sixteen is that a category exists only where the agent does something different
+with it, and by that rule the PRD contains a distinction that does nothing and
+misses one that decides a sixth of the inbox:
+
+- `newsletter-tech` and `newsletter-promo` are the same category. Both are read
+  once and forgotten; nothing downstream tells them apart.
+- **Cold prospecting is 16% of this mailbox, ahead of the owner's own client
+  correspondence, and the PRD has no word for it.** Its nearest,
+  `newsletter-promo`, *files* — so the specified behaviour puts a sixth of the
+  inbox into a folder the owner is expected to read.
+- A colleague asking the owner to decide has no category. The PRD can say a
+  colleague informs (`standard`) but not that one is waiting, which is the
+  distinction the owner cares most about.
+
+**§4.5's filing follows the categories out.** Three newsletter folders and an
+archive for transactional mail are all specified for distinctions that do not
+survive. What replaces them is one folder per category that earns one, and one
+category — cold prospecting — whose mail is trashed rather than filed, on the
+owner's explicit instruction and at a 0.9 confidence floor.
+
+**§3.3's efficiency target is collateral.** The static rule that guessed a
+newsletter sub-category from the sender's local part was the cheap path for
+bulk mail, and it had to go: `List-Unsubscribe` proves a message is bulk and
+cannot say which kind, and the two kinds are now handled in opposite
+directions. The corpus's no-model ratio falls from 0.6 to 0.5, and the rule it
+replaced was wrong on the real mailbox 40 times out of 42.
+
 ## Two more, outside the PRD
 
 **`LIST-EXTENDED` is advertised and broken** on the production IMAP server:

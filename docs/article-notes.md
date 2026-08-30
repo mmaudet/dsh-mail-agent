@@ -1284,6 +1284,90 @@ correctif suivant — l'état du fil — a été compté avant d'être codé, et
 valait rien. Le réflexe n'est pas d'avoir de bonnes hypothèses, c'est de les
 faire payer d'avance.
 
+## §18 — La taxonomie ne venait de nulle part
+
+Le PRD spécifie huit catégories. Elles ont été écrites avant que quiconque ait
+classé un vrai message, et rien depuis ne les avait confrontées à une boîte.
+
+Deux mesures de suite les contredisent, dans des directions opposées. Sur trente
+messages étiquetés à l'aveugle, le propriétaire en utilise **trois**, et la
+moitié des erreurs du classifieur tombe dans des catégories qu'il n'utilise
+jamais. Décision prise : réduire à trois. Réduction commencée, code écrit, tests
+verts — et abandonnée quinze messages après le début du second étiquetage. Trois
+ne suffit pas non plus.
+
+Ni huit ni trois ne venaient du courrier. C'est le point.
+
+### Décrire avant de classer
+
+400 messages réels, un mois. Passe 1 : décrire chaque message en mots libres,
+sans vocabulaire imposé, avec la consigne explicite de ne pas chercher à les
+faire rentrer dans des cases.
+
+**356 descriptions distinctes pour 400 messages.** C'est le premier résultat, et
+il vaut à lui seul : aucune liste courte ne tombe naturellement de cette boîte.
+Toute taxonomie est une décision sur les différences qu'on choisit d'ignorer.
+
+Deux chiffres de cette passe tiennent seuls : **66 % des messages ne demandent
+rien** — un instrument entièrement différent retrouve les 60 % de `standard` des
+trente étiquettes — et 8 % seulement portent une échéance explicite.
+
+### La règle qui fait le tri
+
+Passe 2, un seul critère : **une catégorie n'existe que si l'agent en fait
+quelque chose de différent.** Pas « est-ce une vraie différence » — un humain en
+voit trois cent cinquante-six — mais « l'agent agit-il dessus ».
+
+Ce critère élimine huit distinctions, dont exactement celle du PRD entre
+newsletter technique et newsletter promotionnelle : même traitement final, donc
+une seule catégorie mal nommée. La liste des rejets est la moitié utile de la
+méthode.
+
+### Ce que le PRD n'avait pas de mot pour dire
+
+Passe 3, reclassement des mêmes 400 : **97 % de couverture**. Et deux trous que
+huit catégories ne pouvaient pas voir.
+
+**La prospection non sollicitée est la première catégorie de la boîte — 16 %,
+devant les échanges clients du propriétaire.** Le mot le plus proche du PRD,
+`newsletter-promo`, *range*. Le comportement spécifié met donc un sixième de la
+boîte dans un dossier que le propriétaire est censé lire.
+
+**Un collègue qui demande une décision n'a pas de catégorie.** Le PRD sait dire
+qu'un collègue informe (`standard`), pas qu'un collègue attend. C'est
+précisément la distinction qui compte le plus pour le propriétaire, et c'est la
+lecture des onze messages résiduels — un par un, pas comptés — qui l'a trouvée.
+
+### Le prix, dit franchement
+
+Le nœud 4 devinait une sous-catégorie de newsletter à partir du nom local de
+l'expéditeur. Cette règle disparaît, et le ratio « sans appel modèle » du corpus
+passe de 0,6 à 0,5 avec elle.
+
+Elle devait disparaître pour une raison précise : `List-Unsubscribe` prouve
+qu'un message est du volume et s'arrête là, et les deux catégories de volume
+sont maintenant traitées **en sens opposés** — l'éditorial souscrit est rangé et
+lu, la prospection froide part à la corbeille sans qu'on demande. La question
+qui les sépare est « le propriétaire l'a-t-il demandé », qu'aucun en-tête
+n'enregistre. Une règle qui devine là mettrait une newsletter à la corbeille, ou
+un sixième de la boîte en lecture.
+
+Elle avait tort, en plus : 40 messages de volume sur 42 ne déclenchaient aucun
+signal, et les deux auxquels elle répondait étaient une liste de diffusion, un
+ticket OVH et un avis de contravention, tous rangés en newsletter technique à
+confiance 1 — là où le nœud 7 ne peut pas les dégrader et où le modèle ne les
+relit jamais.
+
+### La leçon
+
+Trois sections de suite dans ce projet ont mesuré un classifieur contre un
+vocabulaire que personne n'avait vérifié. La calibration du prompt, la mesure de
+l'état du fil, la précision sur `important` : tout cela réglait la visée d'une
+cible mal placée.
+
+Et la contre-mesure est la même que les précédentes, à un cran au-dessus :
+faire payer d'avance. Pas seulement l'hypothèse — la question elle-même.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
