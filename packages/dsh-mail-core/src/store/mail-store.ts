@@ -15,6 +15,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 
+import type { Observation } from '../cascade/learned-patterns.js';
 import type {
   CascadeNode,
   DecisionTrace,
@@ -29,6 +30,8 @@ create table if not exists traces (
   message_id  text primary key,
   thread_id   text,
   owner_acted integer not null default 0,
+  sender      text,
+  list_id     text,
   decided_by  text    not null,
   category    text    not null,
   confidence  real    not null,
@@ -107,9 +110,20 @@ export class MailStore {
     if (!columns.includes('owner_acted')) {
       this.db.exec('alter table traces add column owner_acted integer not null default 0');
     }
+    // Where a decision came from, which the decision itself does not carry.
+    // Without these the store holds every verdict and cannot say which source
+    // produced it, so node 3 has no input and learns nothing — the state it was
+    // in until this column existed.
+    if (!columns.includes('sender')) {
+      this.db.exec('alter table traces add column sender text');
+    }
+    if (!columns.includes('list_id')) {
+      this.db.exec('alter table traces add column list_id text');
+    }
   }
 
   // --- traces ---------------------------------------------------------------
+
 
   /**
    * Records one decision, replacing any earlier one for the same message.
@@ -124,15 +138,17 @@ export class MailStore {
    * the design that reuse cannot inflate: it is a fact about the owner rather
    * than about the classifier.
    */
-  recordTrace(trace: DecisionTrace, threadId?: string | null, ownerActed = false): void {
+  recordTrace(trace: DecisionTrace, source: TraceSource = {}): void {
     this.db
       .prepare(
         `insert into traces
-           (message_id, thread_id, owner_acted, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (message_id, thread_id, owner_acted, sender, list_id, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict(message_id) do update set
            thread_id = excluded.thread_id,
            owner_acted = excluded.owner_acted,
+           sender = excluded.sender,
+           list_id = excluded.list_id,
            decided_by = excluded.decided_by,
            category = excluded.category,
            confidence = excluded.confidence,
@@ -144,8 +160,10 @@ export class MailStore {
       )
       .run(
         trace.messageId,
-        threadId ?? null,
-        ownerActed ? 1 : 0,
+        source.threadId ?? null,
+        source.ownerActed === true ? 1 : 0,
+        source.sender?.toLowerCase() ?? null,
+        source.listId?.toLowerCase() ?? null,
         trace.decidedBy,
         trace.category,
         trace.confidence,
@@ -250,6 +268,49 @@ export class MailStore {
   loadCursor(folder: string): string | null {
     const row = this.db.prepare('select cursor from cursors where folder = ?').get(folder);
     return row === undefined ? null : String((row as { cursor: string }).cursor);
+  }
+
+  /**
+   * Every decision the model made, as evidence node 3 can learn from.
+   *
+   * Only what `learnPatterns` will actually use: rows the model settled, from a
+   * source that identifies itself. A decision a cheap node made is excluded
+   * upstream too, and for a reason worth repeating here — learning from a rule's
+   * own output teaches the rule to agree with itself.
+   */
+  observations(limit = 5000): Observation[] {
+    const rows = this.db
+      .prepare(
+        `select sender, list_id, category, confidence, decided_by
+           from traces
+          where decided_by = 'llm' and (sender is not null or list_id is not null)
+          order by started_at desc
+          limit ?`,
+      )
+      .all(limit);
+
+    const observations: Observation[] = [];
+    for (const raw of rows) {
+      const row = raw as {
+        sender: string | null;
+        list_id: string | null;
+        category: string;
+        confidence: number;
+        decided_by: string;
+      };
+      const category = toMailCategory(row.category);
+      // A decision naming a category the vocabulary has dropped is not evidence
+      // about anything the agent can still answer.
+      if (category === null) continue;
+      observations.push({
+        sender: row.sender ?? '',
+        listId: row.list_id,
+        category,
+        confidence: row.confidence,
+        decidedBy: 'llm',
+      });
+    }
+    return observations;
   }
 
   // --- stated routes --------------------------------------------------------
@@ -421,6 +482,23 @@ function toTrace(raw: unknown): DecisionTrace {
     durationMs: row.duration_ms,
     steps: JSON.parse(row.steps) as TraceStep[],
   };
+}
+
+/**
+ * Where a decision came from, which the decision itself does not record.
+ *
+ * An object rather than three positional arguments: they are all optional and
+ * two of them are strings, so a call site that swapped them would compile and
+ * write a sender into the thread column.
+ */
+export interface TraceSource {
+  readonly threadId?: string | null | undefined;
+  /** Whether the owner has replied in this thread (PRD section 4.2, node 1). */
+  readonly ownerActed?: boolean | undefined;
+  /** The sender's full address, lowercased on the way in. */
+  readonly sender?: string | null | undefined;
+  /** RFC 2919 `List-Id`, when the message carried one. */
+  readonly listId?: string | null | undefined;
 }
 
 /**

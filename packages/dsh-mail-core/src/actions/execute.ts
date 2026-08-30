@@ -17,10 +17,18 @@
 
 import type { MailService } from '../mail-service.js';
 import type { DecisionTrace } from '../cascade/types.js';
-import type { MailStore } from '../store/mail-store.js';
+import type { MailStore, TraceSource } from '../store/mail-store.js';
 import type { PlannedAction } from './plan.js';
 
 export interface ExecuteOptions {
+  /**
+   * Where the classified message came from, recorded beside its verdict.
+   *
+   * Optional because a caller that only wants the actions performed should not
+   * have to assemble it — but a caller that omits it is writing a trace node 3
+   * cannot learn from.
+   */
+  readonly source?: TraceSource | undefined;
   /**
    * Default. Nothing reaches the mailbox, and the result says what would have.
    *
@@ -65,7 +73,11 @@ export async function executePlan(
 
   // Before anything is written, and in a dry run too: a plan that was
   // considered and not applied is still a decision worth having a record of.
-  store.recordTrace(trace);
+  //
+  // The source goes in with it. A verdict without the sender that produced it
+  // is a decision node 3 can never learn from, which is the state the store was
+  // in while its learning functions sat unused.
+  store.recordTrace(trace, options.source ?? {});
 
   const performed: PlannedAction[] = [];
   const failed: ExecutionFailure[] = [];

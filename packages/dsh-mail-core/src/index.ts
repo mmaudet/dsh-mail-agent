@@ -118,3 +118,18 @@ export {
   type AdapterKind,
   type MailPingResult,
 } from './tools/mail-ping.js';
+
+export { MailStore, type Efficiency, type TraceSource } from './store/mail-store.js';
+
+export {
+  learn,
+  describeLearn,
+  type LearnResult,
+} from './cascade/learn.js';
+
+export {
+  learnPatterns,
+  mergePatterns,
+  type LearnOptions,
+  type Observation,
+} from './cascade/learned-patterns.js';
