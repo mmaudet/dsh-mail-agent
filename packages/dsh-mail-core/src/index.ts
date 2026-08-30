@@ -148,3 +148,11 @@ export {
   type AgentOptions,
   type AgentPass,
 } from './agent.js';
+
+export {
+  createLlmClassifier,
+  parseVerdict,
+  renderMessage,
+  SYSTEM_PROMPT,
+  type LlmClassifierOptions,
+} from './cascade/llm-classifier.js';
