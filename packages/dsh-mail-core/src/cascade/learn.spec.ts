@@ -10,14 +10,14 @@ import { describe, expect, it } from 'vitest';
 
 import { MailStore } from '../store/mail-store.js';
 import { learn, describeLearn } from './learn.js';
-import type { CascadeNode, DecisionTrace } from './types.js';
+import type { DecisionTrace } from './types.js';
 import type { MailCategory } from '../types.js';
 
 function trace(over: Partial<DecisionTrace> = {}): DecisionTrace {
   return {
     messageId: 'm1',
-    decidedBy: 'llm' as CascadeNode,
-    category: 'veille-newsletter' as MailCategory,
+    decidedBy: 'llm',
+    category: 'veille-newsletter',
     confidence: 0.95,
     rationale: 'r',
     steps: [],

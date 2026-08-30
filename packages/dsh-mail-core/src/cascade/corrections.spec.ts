@@ -39,7 +39,7 @@ function file(
   const t: DecisionTrace = {
     messageId,
     decidedBy,
-    category: over.category ?? ('spam-formulaire-contact' as MailCategory),
+    category: over.category ?? 'spam-formulaire-contact',
     confidence: 1,
     rationale: 'r',
     steps: [],

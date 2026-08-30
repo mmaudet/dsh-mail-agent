@@ -33,7 +33,7 @@ const IMAP_LIKE: Capabilities = {
 class RecordingAdapter implements MailService {
   locate(ids: readonly string[]): Promise<Map<string, string[]>> {
     this.calls.push({ op: 'locate', ids: [...ids] } as never);
-    return Promise.resolve(new Map());
+    return Promise.resolve(new Map<string, string[]>());
   }
 
   readonly calls: Call[] = [];
