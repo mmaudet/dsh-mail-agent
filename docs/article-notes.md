@@ -957,6 +957,25 @@ One colleague accounts for 18% of the inbox and is genuinely five categories: a
 question, a forward, a document, a note. **No prompt makes a person into a
 category, because their messages differ.**
 
+### And the second mailbox refuted the obvious explanation
+
+A work inbox is colleagues; a personal one is services and shops. If the cascade
+is built for automated senders it should do far better on the second. Measured:
+**19% on the work account, 18% on the personal one.** No advantage.
+
+The reason corrects the tempting story. `noreply-marketplace.partner@decathlon.com`
+is as automated as a sender gets and still splits between `transactional` and
+`important`, because a marketplace sends order confirmations *and* other things.
+
+So it is not people against machines. **A source with several purposes has
+several categories, and most sources have several purposes.** A single
+newsletter is one thing; a platform is not, and a colleague is not.
+
+Worth publishing as much for the shape as the number: the first mailbox
+supported a clean story — machines are learnable, humans are not — and the
+second one broke it. One dataset produces a hypothesis; it takes a second to
+find out it was a description.
+
 ### The restraint selected for the right thing without being told to
 
 Node 3 requires unanimity before learning a source. That rule was written to

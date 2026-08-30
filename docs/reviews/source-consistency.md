@@ -61,10 +61,40 @@ because a corporate sender's bulk categories degrade to `needs-review` at node 6
 The raw model is worse than the system that contains it, which is the point of
 containing it.
 
+## The other mailbox, and what it corrects
+
+The work mailbox is colleagues and internal lists. A personal one is services,
+shops and newsletters — so if the cascade is built for automated senders it
+should do markedly better there. Measured on the Gmail account, same probes:
+
+| | work (JMAP) | personal (Gmail) |
+|---|---|---|
+| window | 256 msgs / 4 days | 129 msgs / 18 days |
+| sources seen 3+ times | 64% of messages | 50% |
+| **unanimous sources** | **8 of 15** | **3 of 5** |
+| **messages they cover** | **19%** | **18%** |
+
+**No advantage.** The ratio is the same to within the noise of a small sample,
+and the reason corrects the framing above.
+
+`noreply-marketplace.partner@decathlon.com` is as automated as a sender gets,
+and it splits `transactional×3 important×2` — because a marketplace sends order
+confirmations *and* other things. `www.substack.com` splits between promo and
+notification for the same reason.
+
+So it is not people against machines. **It is that a source with several
+purposes has several categories, and most sources have several purposes.** A
+single newsletter is one category; a platform is not, and a colleague is not.
+
+The earlier reading — "node 3's premise holds for machines and fails for
+people" — was the right observation from one mailbox and the wrong
+generalisation. What holds is narrower: a source is learnable when it does one
+thing.
+
 ## What this settles about the architecture
 
-The cascade's cost argument is weaker than PRD section 4.2 assumes. On this
-mailbox:
+The cascade's cost argument is weaker than PRD section 4.2 assumes, and the
+same on both mailboxes measured. On the work account:
 
 - static rules settle ~9%
 - learned patterns could reach ~19% once they accumulate
