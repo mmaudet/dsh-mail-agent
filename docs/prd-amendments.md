@@ -204,6 +204,44 @@ cannot say which kind, and the two kinds are now handled in opposite
 directions. The corpus's no-model ratio falls from 0.6 to 0.5, and the rule it
 replaced was wrong on the real mailbox 40 times out of 42.
 
+## 10. §5 — a category is not a queue, and the PRD has no way to say so
+
+The PRD's drafting section takes the category as the trigger: certain
+categories are draftable, the agent drafts for them. Measured against forty
+messages the owner annotated, that produced a queue of forty of which nine
+wanted anything (`docs/reviews/forty-dispositions.md`).
+
+Three of the four failures are not about the model at all.
+
+**Ten had already been answered.** The queue's second condition was "still in
+the inbox", and this owner replies without filing. The fix is exact and free —
+their reply carries the original's `Message-ID` in `In-Reply-To` — and it is
+the largest single correction anything in this project has produced.
+
+**One was the owner's own message,** returned to their inbox through a role
+alias and offered back to them as needing an answer.
+
+**And a category is a poor proxy for an obligation.** The sixteen say what a
+message *is*. `demande-interne` covers both a colleague asking the owner to
+approve something and a colleague telling them a decision has been taken. The
+queue needs the second question — *does this ask something of the owner?* —
+and the PRD has no place for it, because it assumes classification settles
+everything downstream.
+
+That question is now `queue/asks.ts`, deliberately not wired into the loop: it
+costs a model call per message on top of classification, and §3.3's efficiency
+target is stated against classification alone. Turning it on is a decision
+about cost that belongs to the owner, and the PRD should say which of the two
+budgets it comes out of.
+
+**§4.2's ordering has nothing to say about addressing.** Twenty of the forty
+name the owner in neither `To` nor `Cc`, arriving through a group alias. The
+PRD's model has one owner address; a real one has a personal address, a role
+address, and half a dozen team aliases whose meanings are opposite —
+`expertise-libre@` carried four messages and no obligations, `canut-libre@`
+carried one message and one obligation. Which alias is which is an
+owner-stated fact, like a route, and there is no field for it.
+
 ## Two more, outside the PRD
 
 **`LIST-EXTENDED` is advertised and broken** on the production IMAP server:
