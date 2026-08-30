@@ -522,3 +522,67 @@ describe('getMessages batching', () => {
     }
   });
 });
+
+describe('messagesSince pages past the server cap', () => {
+  it('keeps asking until it has what was requested', async () => {
+    // `Email/query` on the target server caps a page at 256 whatever is asked,
+    // and returns the truncated page without saying so. This project was
+    // already caught by that once, and asking for 1500 here silently returned
+    // 256 — the same mistake, in a primitive added to avoid a different one.
+    const pages = [
+      Array.from({ length: 256 }, (_, i) => `a${String(i)}`),
+      Array.from({ length: 256 }, (_, i) => `b${String(i)}`),
+      Array.from({ length: 10 }, (_, i) => `c${String(i)}`),
+    ];
+    let call = 0;
+    const transport = {
+      sent: [] as { methodCalls: unknown[][] }[],
+      request(body: { methodCalls: unknown[][] }) {
+        transport.sent.push(body);
+        const name = body.methodCalls[0]?.[0];
+        if (name === 'Mailbox/get') {
+          return Promise.resolve({
+            methodResponses: [['Mailbox/get', { list: [{ id: 'f1', name: 'INBOX', parentId: null, role: 'inbox', totalEmails: 0, unreadEmails: 0 }] }, 'c']],
+          });
+        }
+        const ids = pages[call] ?? [];
+        call += 1;
+        return Promise.resolve({ methodResponses: [['Email/query', { ids }, 'q0']] });
+      },
+    };
+    const adapter = new JmapAdapter({ transport, accountId: 'acc1', identityId: 'id1' });
+
+    const ids = await adapter.messagesSince('INBOX', new Date('2026-08-24'), 600);
+
+    expect(ids).toHaveLength(522);
+    expect(ids[0]).toBe('a0');
+    expect(ids.at(-1)).toBe('c9');
+  });
+
+  it('stops at the limit rather than overrunning it', async () => {
+    const transport = {
+      request(body: { methodCalls: unknown[][] }) {
+        if (body.methodCalls[0]?.[0] === 'Mailbox/get') {
+          return Promise.resolve({
+            methodResponses: [['Mailbox/get', { list: [{ id: 'f1', name: 'INBOX', parentId: null, role: 'inbox', totalEmails: 0, unreadEmails: 0 }] }, 'c']],
+          });
+        }
+        const asked = (body.methodCalls[0]?.[1] as { limit: number }).limit;
+        return Promise.resolve({
+          methodResponses: [['Email/query', { ids: Array.from({ length: asked }, (_, i) => `x${String(i)}`) }, 'q0']],
+        });
+      },
+    };
+    const adapter = new JmapAdapter({ transport, accountId: 'acc1', identityId: 'id1' });
+
+    expect(await adapter.messagesSince('INBOX', new Date('2026-08-24'), 100)).toHaveLength(100);
+  });
+
+  it('asks for nothing when the limit is nothing', async () => {
+    const transport = {
+      request: () => Promise.reject(new Error('must not be called')),
+    };
+    const adapter = new JmapAdapter({ transport, accountId: 'acc1', identityId: 'id1' });
+    expect(await adapter.messagesSince('INBOX', new Date(), 0)).toStrictEqual([]);
+  });
+});

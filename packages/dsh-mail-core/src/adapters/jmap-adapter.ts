@@ -49,6 +49,14 @@ const MAX_CHANGES = 256;
  * ordinary poll.
  */
 const GET_BATCH = 50;
+
+/**
+ * Most ids to ask for in one `Email/query`.
+ *
+ * The target server caps a page at 256 regardless of what is asked, and
+ * returns the truncated page without saying it truncated anything.
+ */
+const QUERY_PAGE = 256;
 export const JMAP_MAIL = 'urn:ietf:params:jmap:mail';
 export const JMAP_SUBMISSION = 'urn:ietf:params:jmap:submission';
 
@@ -225,26 +233,44 @@ export class JmapAdapter implements MailService {
     return changes;
   }
 
-  /** Message ids in a folder received at or after a date, oldest first. */
+  /**
+   * Message ids in a folder received at or after a date, oldest first.
+   *
+   * Paged, because `Email/query` does not honour a large `limit`: the target
+   * server caps a page at 256 whatever is asked, silently. This project has
+   * already been caught by that cap once — every JMAP measurement in an
+   * earlier phase turned out to have been taken on 256 messages — and asking
+   * for 1500 here returned 256 without a word.
+   */
   async messagesSince(folder: string, since: Date, limit: number): Promise<string[]> {
     if (limit <= 0) return [];
     const folderId = await this.#folderId(folder);
-    const response = await this.#call(
-      [JMAP_CORE, JMAP_MAIL],
-      [
-        'Email/query',
-        {
-          accountId: this.#accountId,
-          // RFC 8621 section 4.4.1: `after` is inclusive of the instant given.
-          filter: { inMailbox: folderId, after: since.toISOString() },
-          sort: [{ property: 'receivedAt', isAscending: true }],
-          position: 0,
-          limit,
-        },
-        'q0',
-      ],
-    );
-    return idsOf(readProp(response, 'ids'));
+    const ids: string[] = [];
+
+    while (ids.length < limit) {
+      const response = await this.#call(
+        [JMAP_CORE, JMAP_MAIL],
+        [
+          'Email/query',
+          {
+            accountId: this.#accountId,
+            // RFC 8621 section 4.4.1: `after` is inclusive of the instant given.
+            filter: { inMailbox: folderId, after: since.toISOString() },
+            sort: [{ property: 'receivedAt', isAscending: true }],
+            position: ids.length,
+            limit: Math.min(QUERY_PAGE, limit - ids.length),
+          },
+          'q0',
+        ],
+      );
+      const page = idsOf(readProp(response, 'ids'));
+      ids.push(...page);
+      // A short page is the end of the folder. A full one may or may not be,
+      // so the next round trip is the only way to find out.
+      if (page.length === 0) break;
+      if (page.length < Math.min(QUERY_PAGE, limit - (ids.length - page.length))) break;
+    }
+    return ids.slice(0, limit);
   }
 
   /** Which folders each of these messages is in now, by id. */
