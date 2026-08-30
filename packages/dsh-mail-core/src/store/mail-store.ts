@@ -1,0 +1,260 @@
+/**
+ * What the agent remembers between runs (PRD section 3.3).
+ *
+ * Three things, in one place because they are one question — decision traces,
+ * folder cursors, and learned patterns. A trace explains a decision, a cursor
+ * says where to resume, and a pattern is what the traces taught.
+ *
+ * On `node:sqlite` rather than a driver: Node 22 ships it, this project's whole
+ * argument is about what runs on one machine under one operator's control, and
+ * a native module that has to compile is a thing that breaks on a server at
+ * three in the morning. The API is marked experimental, which is the cost —
+ * accepted because the surface used here is `exec`, `prepare`, `run` and
+ * `all`, and any replacement offers those.
+ */
+
+import { DatabaseSync } from 'node:sqlite';
+
+import type { CascadeNode, DecisionTrace, LearnedPattern, TraceStep } from '../cascade/types.js';
+import { toMailCategory } from '../types.js';
+
+const SCHEMA = `
+create table if not exists traces (
+  message_id  text primary key,
+  decided_by  text    not null,
+  category    text    not null,
+  confidence  real    not null,
+  rationale   text    not null,
+  used_model  integer not null,
+  started_at  text    not null,
+  duration_ms integer not null,
+  steps       text    not null
+);
+create index if not exists traces_started_at on traces (started_at);
+
+create table if not exists cursors (
+  folder     text primary key,
+  cursor     text not null,
+  updated_at text not null
+);
+
+create table if not exists patterns (
+  key              text primary key,
+  list_id          text,
+  sender           text,
+  subject_contains text,
+  category         text not null,
+  confidence       real not null,
+  updated_at       text not null
+);
+`;
+
+/** How often the model ran, which is the KPI PRD section 4.2 is built on. */
+export interface Efficiency {
+  readonly classified: number;
+  readonly withModel: number;
+  /** 0 to 1, or `null` when nothing has been classified yet. */
+  readonly settledFree: number | null;
+}
+
+export class MailStore {
+  private readonly db: DatabaseSync;
+
+  /** `:memory:` for a test, a path under `$DSH_HOME` for a deployment. */
+  constructor(location: string) {
+    this.db = new DatabaseSync(location);
+    // Survives a power cut mid-write, which a mail agent running unattended
+    // will eventually meet.
+    this.db.exec('pragma journal_mode = wal');
+    this.db.exec(SCHEMA);
+  }
+
+  // --- traces ---------------------------------------------------------------
+
+  /**
+   * Records one decision, replacing any earlier one for the same message.
+   *
+   * Replacing rather than appending: a message has one current classification,
+   * and a history of re-decisions is a different feature with different
+   * retention questions. What is kept is what the agent currently believes.
+   */
+  recordTrace(trace: DecisionTrace): void {
+    this.db
+      .prepare(
+        `insert into traces
+           (message_id, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict(message_id) do update set
+           decided_by = excluded.decided_by,
+           category = excluded.category,
+           confidence = excluded.confidence,
+           rationale = excluded.rationale,
+           used_model = excluded.used_model,
+           started_at = excluded.started_at,
+           duration_ms = excluded.duration_ms,
+           steps = excluded.steps`,
+      )
+      .run(
+        trace.messageId,
+        trace.decidedBy,
+        trace.category,
+        trace.confidence,
+        trace.rationale,
+        trace.usedModel ? 1 : 0,
+        trace.startedAt.toISOString(),
+        trace.durationMs,
+        JSON.stringify(trace.steps),
+      );
+  }
+
+  traceFor(messageId: string): DecisionTrace | null {
+    const row = this.db.prepare('select * from traces where message_id = ?').get(messageId);
+    return row === undefined ? null : toTrace(row);
+  }
+
+  /** Most recent first, for the operator view PRD section 4.6 describes. */
+  recentTraces(limit = 50): DecisionTrace[] {
+    const rows = this.db
+      .prepare('select * from traces order by started_at desc limit ?')
+      .all(limit);
+    return rows.map(toTrace);
+  }
+
+  /**
+   * How much of what was classified never reached the model.
+   *
+   * The number the architecture's cost argument rests on, measured from what
+   * actually happened rather than projected from a corpus.
+   */
+  efficiency(since?: Date): Efficiency {
+    const row =
+      since === undefined
+        ? this.db.prepare('select count(*) n, sum(used_model) m from traces').get()
+        : this.db
+            .prepare('select count(*) n, sum(used_model) m from traces where started_at >= ?')
+            .get(since.toISOString());
+
+    const classified = Number((row as { n: number }).n);
+    const withModel = Number((row as { m: number | null }).m ?? 0);
+    return {
+      classified,
+      withModel,
+      settledFree: classified === 0 ? null : (classified - withModel) / classified,
+    };
+  }
+
+  // --- cursors --------------------------------------------------------------
+
+  saveCursor(folder: string, cursor: string): void {
+    this.db
+      .prepare(
+        `insert into cursors (folder, cursor, updated_at) values (?, ?, ?)
+         on conflict(folder) do update set cursor = excluded.cursor, updated_at = excluded.updated_at`,
+      )
+      .run(folder, cursor, new Date().toISOString());
+  }
+
+  /** `null` for a folder never polled, which is what `currentCursor` is for. */
+  loadCursor(folder: string): string | null {
+    const row = this.db.prepare('select cursor from cursors where folder = ?').get(folder);
+    return row === undefined ? null : String((row as { cursor: string }).cursor);
+  }
+
+  // --- learned patterns -----------------------------------------------------
+
+  /**
+   * Replaces the stored set with this one.
+   *
+   * Whole-set rather than incremental: `mergePatterns` already decides what
+   * survives, and two places deciding that is how a pattern nobody can explain
+   * ends up in the table.
+   */
+  savePatterns(patterns: readonly LearnedPattern[]): void {
+    const now = new Date().toISOString();
+    this.db.exec('begin');
+    try {
+      this.db.exec('delete from patterns');
+      const insert = this.db.prepare(
+        `insert into patterns (key, list_id, sender, subject_contains, category, confidence, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const p of patterns) {
+        const key =
+          p.listId !== null && p.listId !== undefined
+            ? `list:${p.listId.toLowerCase()}`
+            : `from:${(p.sender ?? '').toLowerCase()}`;
+        insert.run(
+          key,
+          p.listId ?? null,
+          p.sender,
+          p.subjectContains,
+          p.category,
+          p.confidence,
+          now,
+        );
+      }
+      this.db.exec('commit');
+    } catch (err: unknown) {
+      this.db.exec('rollback');
+      throw err;
+    }
+  }
+
+  loadPatterns(): LearnedPattern[] {
+    const rows = this.db.prepare('select * from patterns order by key').all();
+    const patterns: LearnedPattern[] = [];
+    for (const raw of rows) {
+      const row = raw as {
+        list_id: string | null;
+        sender: string | null;
+        subject_contains: string | null;
+        category: string;
+        confidence: number;
+      };
+      const category = toMailCategory(row.category);
+      // A row whose category is no longer in the vocabulary is not a pattern
+      // to guess at: it is skipped, and the next learning pass replaces it.
+      if (category === null) continue;
+      patterns.push({
+        listId: row.list_id,
+        sender: row.sender,
+        subjectContains: row.subject_contains,
+        category,
+        confidence: row.confidence,
+      });
+    }
+    return patterns;
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
+
+function toTrace(raw: unknown): DecisionTrace {
+  const row = raw as {
+    message_id: string;
+    decided_by: string;
+    category: string;
+    confidence: number;
+    rationale: string;
+    used_model: number;
+    started_at: string;
+    duration_ms: number;
+    steps: string;
+  };
+  const category = toMailCategory(row.category);
+  if (category === null) throw new TypeError(`stored trace has an unknown category: ${row.category}`);
+
+  return {
+    messageId: row.message_id,
+    decidedBy: row.decided_by as CascadeNode,
+    category,
+    confidence: row.confidence,
+    rationale: row.rationale,
+    usedModel: row.used_model === 1,
+    startedAt: new Date(row.started_at),
+    durationMs: row.duration_ms,
+    steps: JSON.parse(row.steps) as TraceStep[],
+  };
+}

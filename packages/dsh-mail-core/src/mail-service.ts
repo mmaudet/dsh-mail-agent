@@ -187,6 +187,17 @@ export class MailboxService extends Service implements MailService {
  * rejects custom keywords still stores the standard IMAP ones. When several
  * Sentinel tags name a folder, the first wins, since a message has one home.
  */
+/**
+ * How one category is expressed on a server that cannot store custom keywords.
+ *
+ * Exported because the action planner needs the same table: the fallback is
+ * not only a degradation, it is where a category's flags and folder are
+ * written down.
+ */
+export function categoryFallback(category: MailCategory): KeywordFallback {
+  return FALLBACKS[category];
+}
+
 export function planDegradedKeywords(keywords: readonly string[]): KeywordFallback {
   const flags: string[] = [];
   let folder: string | null = null;
