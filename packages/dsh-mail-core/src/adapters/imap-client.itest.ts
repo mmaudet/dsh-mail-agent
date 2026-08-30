@@ -256,3 +256,30 @@ describe.skipIf(realPassword === undefined || realPassword.length === 0)(
     });
   },
 );
+
+describe('deleting a mailbox', () => {
+  it('removes one it created, and says so by absence', async () => {
+    const imap = new ImapFlowConnection(DOVECOT);
+    const doomed = `dsh-itest-doomed-${SUFFIX}`;
+    try {
+      await imap.ensureMailbox(doomed);
+      expect((await imap.listMailboxes()).map((b) => b.path)).toContain(doomed);
+
+      await imap.deleteMailbox(doomed);
+      expect((await imap.listMailboxes()).map((b) => b.path)).not.toContain(doomed);
+    } finally {
+      await imap.close();
+    }
+  });
+
+  it('reports a mailbox that is not there rather than pretending', async () => {
+    // An operator clearing stale organisation needs to know the difference
+    // between "removed it" and "it was already gone".
+    const imap = new ImapFlowConnection(DOVECOT);
+    try {
+      await expect(imap.deleteMailbox(`dsh-itest-absent-${SUFFIX}`)).rejects.toThrow();
+    } finally {
+      await imap.close();
+    }
+  });
+});

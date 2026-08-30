@@ -331,6 +331,25 @@ export class ImapFlowConnection implements ImapConnection {
     }
   }
 
+  /**
+   * Removes a mailbox. Not part of the port, and deliberately so.
+   *
+   * Nothing in the cascade deletes a folder: the contract creates them
+   * (`ensureMailbox`) and moves messages between them. This exists for an
+   * operator clearing out organisation that has gone stale, which is a
+   * decision a person makes about their own mailbox rather than something an
+   * agent does on a schedule.
+   *
+   * On Gmail a mailbox is a label, and removing one does not remove its
+   * messages: they keep their other labels and remain in All Mail. What is not
+   * recoverable is the label itself and which messages carried it.
+   */
+  async deleteMailbox(path: string): Promise<void> {
+    const client = await this.ready();
+    if (this.opened === path) this.opened = null;
+    await client.mailboxDelete(path);
+  }
+
   /** Closes the connection. Not part of the port: only a test or a shutdown calls it. */
   async close(): Promise<void> {
     if (this.client.usable) await this.client.logout();
