@@ -1160,6 +1160,93 @@ looking for. Three separate times, the measurement was real and the
 a bad measurement and harder to catch, because nothing about the number looks
 suspicious.
 
+## §17 — Trente jugements, et le premier miroir extérieur
+
+Le propriétaire de la boîte a étiqueté trente messages réels, à l'aveugle. Les
+réponses du modèle ne lui ont jamais été montrées : une étiquette ancrée mesure
+l'ancre. C'est la première référence extérieure du projet, et elle arrive au
+seizième chapitre.
+
+Tout ce qui précède comparait le classifieur à lui-même. Les 61 % d'`important`,
+les 36 % d'efficacité à chaud, la cohérence entre deux boîtes : des mesures
+réelles, toutes, et aucune ne pouvait dire si les réponses étaient *justes*.
+Elles disaient à quelle fréquence la machine répondait.
+
+### Le diagnostic était bon, le correctif ne l'était pas
+
+Lecture des étiquettes : la première règle du prompt — *un humain attend-il
+quelque chose du propriétaire ? → important* — attrape la quasi-totalité d'une
+boîte professionnelle, parce qu'une boîte professionnelle, c'est très
+majoritairement des humains qui écrivent. La ligne que le propriétaire trace
+est plus étroite : **une action que lui seul peut faire**, contre **être tenu
+informé**, y compris par un humain, y compris quand l'information est une
+demande qui incombe à quelqu'un d'autre.
+
+Règle réécrite. Mesurée sur les mêmes trente, épinglés par identifiant.
+
+| | v2 *un humain attend* | v3 *qui doit agir* |
+|---|---|---|
+| accord, 8 catégories | 20 % | 27 % |
+| `important` attribué | 15 | 9 |
+| `standard` attribué | 2 | 10 |
+
+Sept points. La distribution est corrigée. On aurait mergé.
+
+### Le chiffre qui annule le gain
+
+En repliant sur les trois catégories que le propriétaire utilise réellement,
+les deux prompts deviennent indiscernables : **40 % chacun, quatorze erreurs de
+frontière chacun**. v2 se trompait dix fois vers `important` et quatre vers
+`standard` ; v3 se trompe sept fois dans chaque sens.
+
+La réécriture a déplacé le seuil. Elle n'a rien ajouté à la discrimination.
+C'est exactement la signature d'un modèle qui ne voit pas ce qui sépare les
+deux classes : un prompt ne peut alors que glisser le point de coupe le long
+d'une courbe, et chaque point de cette courbe coûte ce qu'il rapporte.
+
+Et la mesure qui fait le plus mal : `standard` représente 18 des 30.
+**Un classifieur qui répond `standard` à tous les coups fait 60 %.** Les deux
+prompts font 40 %. Les deux sont battus par le refus de réfléchir.
+
+Sur le seul verdict qui porte le produit, la précision de v2 sur `important`
+est de 33 % — pour un taux de base de 33 %. Le drapeau ne transporte aucune
+information. Celui de v3 fait 22 %, sous le hasard.
+
+n=30, dix positifs : les deux chiffres ne sont pas séparables statistiquement.
+Ce qui survit à la réserve est la formulation négative, et elle suffit : **rien
+ici n'indique que le verdict `important` batte le hasard.** Seize sections de
+mesures n'auraient jamais pu l'établir.
+
+### Pourquoi le prompt ne pouvait pas être le levier
+
+La règle que j'ai écrite demande : *y a-t-il une action que le propriétaire seul
+peut faire, **et qui n'a pas été faite** ?*
+
+La seconde moitié est sans réponse pour le modèle. Ce qu'il voit, c'est
+l'expéditeur, le sujet, deux drapeaux et 1200 caractères de corps. Savoir si le
+propriétaire a déjà répondu n'y est pas — c'est dans le magasin de traces,
+colonne `owner_acted`, écrite à chaque passage, et jamais renvoyée au nœud qui
+en a besoin. Le prompt pose une question sur l'état d'un fil en ne montrant que
+l'état d'un message.
+
+Le même trou explique la mesure précédente, celle qui contredisait mon
+hypothèse : 80 % de ce que le propriétaire juge important arrive sans qu'il soit
+ni en `To` ni en `Cc`. Sur cette boîte, l'importance n'est pas une propriété du
+message. C'est une propriété de la position du propriétaire dans une
+conversation.
+
+### La leçon de méthode
+
+Le correctif a été écrit *avant* d'avoir la mesure, pendant que la passerelle
+était en panne, sur la foi d'un diagnostic juste. Le diagnostic était juste. Le
+correctif marche sur l'axe visé et ne marche pas du tout sur ce qui compte, et
+seul le repli de taxonomie le montre — la métrique à huit catégories affichait
++7 points, franc et lisible, et elle était trompeuse.
+
+C'est la même erreur que les trois précédentes du projet, sous une forme
+nouvelle : une mesure réelle dont la *description* est fausse. Ici la
+description fausse était « le prompt s'est amélioré ».
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
