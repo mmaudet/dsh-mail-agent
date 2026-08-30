@@ -61,9 +61,9 @@ const candidate = (message: MailMessage) => ({ message, category: 'demande-inter
 
 describe('a message the owner already answered is finished with', () => {
   it('drops it on the Message-ID join', () => {
-    const message = msg({ id: 'm1', messageId: 'req-2026-8118@interieur.gouv.fr' });
-    expect(answered(message, [reply('req-2026-8118@interieur.gouv.fr')])).toBe(true);
-    expect(pending([candidate(message)], { ownAddresses: OWN, sent: [reply('req-2026-8118@interieur.gouv.fr')] })).toStrictEqual([]);
+    const message = msg({ id: 'm1', messageId: 'answered-days-ago@example.org' });
+    expect(answered(message, [reply('answered-days-ago@example.org')])).toBe(true);
+    expect(pending([candidate(message)], { ownAddresses: OWN, sent: [reply('answered-days-ago@example.org')] })).toStrictEqual([]);
   });
 
   it('matches the id whatever case the reply wrote it in', () => {
@@ -88,8 +88,8 @@ describe('a message the owner already answered is finished with', () => {
 
 describe("the owner's own mail is not a request to the owner", () => {
   it('drops a reply of theirs delivered back into the inbox', () => {
-    // This happened: their own acknowledgement to a judicial requisition came
-    // back through the dg@ alias and the agent queued it as needing an answer.
+    // This happened: an acknowledgement they had written came back through a
+    // role alias, and the agent queued it as a message needing an answer.
     const message = msg({ id: 'm1', from: [{ name: 'Michel-Marie', email: OWNER }] });
     expect(ownMessage(message, OWN)).toBe(true);
     expect(pending([candidate(message)], { ownAddresses: OWN, sent: [] })).toStrictEqual([]);
