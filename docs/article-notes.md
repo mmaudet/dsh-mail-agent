@@ -1442,6 +1442,98 @@ notification qui me le disait. C'est une anecdote, mais elle porte la thèse :
 **un agent qui tourne est un instrument, et un instrument trouve ce qu'aucune
 lecture ne trouve.**
 
+## §20 — Quarante annotations, et la question qui valait plus que le signal
+
+La file d'attente a été livrée au propriétaire avec quarante messages : tout ce
+que l'agent avait classé comme le réclamant, et qui traînait encore dans la
+boîte. Il a écrit une ligne sur chacun, dans ses mots, disant ce que le message
+lui demandait.
+
+**Neuf en voulaient quelque chose.** Dix avaient déjà reçu leur réponse — des
+jours plus tôt, par lui, sans qu'il classe le message pour autant. Un était sa
+propre réponse, revenue dans sa boîte par un alias de rôle, que l'agent lui
+proposait de traiter.
+
+Le filtre de la file disait « classé comme réclamant le propriétaire, et
+toujours dans la boîte ». La seconde moitié était fausse, et détectable pour
+rien : la réponse porte le `Message-ID` de l'original dans `In-Reply-To`. Une
+jointure, pas une heuristique.
+
+### Le cinquième signal générique réfuté
+
+Treize des quarante notes disent « je suis en copie ». Trois de ces messages
+sont réellement en `Cc`. Vingt des quarante ne nomment le propriétaire dans
+aucun champ — et pourtant aucun n'a de `To` vide : ils sont adressés à
+`vente@`, `expertise-libre@`, `dg@`, et lui parviennent par `Delivered-To`.
+« En copie » décrit sa position dans une conversation, pas un en-tête.
+
+Reformulée correctement — *nommé, ou livré parce que je suis sur une liste* —
+la règle sépare 67 % de ce qui demande quelque chose de 71 % de ce qui n'en
+demande pas. Assez pour ordonner la file. Pas assez pour en cacher un
+message : elle enterrerait la question de sous-traitance et le renouvellement
+Microsoft, deux des neuf.
+
+Cinq hypothèses génériques testées sur cette boîte, cinq réfutées. Et par
+alias, la structure apparaît : `expertise-libre@` est une liste de reporting,
+quatre messages, aucun en attente. `vente@` est une adresse de prospects, un
+des quatre veut une réponse de lui. Aucune règle sur « suis-je en `To` » ne les
+distingue, parce que la différence n'est pas dans le message.
+
+### Ce qui a marché, enfin
+
+J'ai gardé les messages fixes et changé la question.
+
+**A** — ce que dit le prompt du classifieur aujourd'hui, réduit au binaire :
+*« quelqu'un attend-il le propriétaire à cause de ce message ? »* Sur une boîte
+professionnelle, la réponse est presque toujours oui. C'est exactement la
+sur-attribution d'`important` que les trente étiquettes avaient trouvée.
+
+**B** — écrit à partir de ses quarante notes : *« quelque chose que le
+propriétaire doit faire lui-même : répondre, signer, valider, approuver,
+renouveler »*, suivi des quatre exceptions qu'il a lui-même nommées, et d'une
+ligne qui dit le taux de base — *« la plupart du courrier ici est NON »*.
+
+| | rappel | précision | file |
+|---|---|---|---|
+| tout proposer | 100 % | 31 % | 29 |
+| l'adressage seul | 67 % | 55 % | 11 |
+| Sonnet 5, prompt A | 78 % | 50 % | 14 |
+| **Sonnet 5, prompt B** | **78 %** | **70 %** | **10** |
+
+Même modèle, mêmes messages, même température. **Vingt points de précision pour
+la formulation, à rappel identique.** C'est plus que n'a jamais rapporté aucun
+signal mesuré sur cette boîte — et tous les signaux mesurés jusque-là avaient
+rapporté zéro.
+
+La ligne sur le taux de base fait plus de travail qu'elle n'en a l'air. Sans
+elle, un modèle lit chaque message seul et trouve dans la plupart quelque chose
+de plausible à faire.
+
+### Et un modèle ouvert y arrive presque
+
+Qwen3 32B, prompt B : il trouve les mêmes sept sur neuf que Sonnet, et en
+propose cinq de trop. Rappel 78 %, précision 47 %, file de quinze. Mistral
+Small 3.2 n'en trouve que quatre.
+
+C'est le premier résultat du projet qui rend la cible souveraine atteignable
+plutôt que souhaitable. La capacité est là ; c'est la discipline qui manque.
+
+Et le chiffre initial de Qwen était 0 %, ce qui était mon harnais : huit tokens
+de budget à un modèle qui en dépense trois cents à réfléchir. La même erreur
+que la semaine dernière, sur la même famille de modèles.
+
+### Ce qu'aucun des trois ne trouve
+
+*« Votre abonnement Microsoft 365 a expiré »*, adressé à `azure-account@`. Et
+*« Sous-traitance marché open source »*, adressé à `canut-libre@`. Deux fois la
+même forme : **envoyé à une liste, et c'est pourtant lui qui doit agir.**
+
+Rien dans ces messages ne le dit. C'est un fait sur l'entreprise, pas sur le
+courrier. Les deux façons de l'apprendre sont qu'il le déclare, ou que l'agent
+remarque qu'il finit toujours par traiter cet alias lui-même.
+
+C'est la conclusion de tout le projet, arrivée par un cinquième chemin.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
