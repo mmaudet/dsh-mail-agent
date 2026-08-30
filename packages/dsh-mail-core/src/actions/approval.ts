@@ -16,6 +16,7 @@
  *   trash after thirty days.
  */
 
+import type { CascadeNode } from '../cascade/types.js';
 import type { MailCategory } from '../types.js';
 
 /** Every category, so a blanket rule cannot silently miss one. */
@@ -77,11 +78,46 @@ export interface ApprovalRule {
    * act on.
    */
   readonly minConfidence?: number | undefined;
+  /**
+   * Only applies when this node settled the message.
+   *
+   * Confidence cannot express the distinction that matters here. A model may
+   * return 1.0, and a stated route always does, so a floor of 1 would grant
+   * both. What separates them is provenance: `stated-route` is the owner
+   * asserting a fact about their own mail, and it is the same answer whichever
+   * model is deployed.
+   *
+   * Measured, not assumed: over 400 messages the automatic trash rule took 89
+   * under Mistral and 11 under Qwen, so 78 messages — 20% of the mailbox —
+   * were deleted or kept by nothing but which model was running. A rule whose
+   * scope is a property of the model has no business being irreversible.
+   *
+   * Absent means the rule applies whichever node decided.
+   */
+  readonly decidedBy?: CascadeNode | undefined;
+}
+
+/** What the cascade concluded, which is all the policy needs to see. */
+export interface Decision {
+  readonly category: MailCategory;
+  readonly confidence: number;
+  readonly decidedBy: CascadeNode;
 }
 
 export interface ApprovalPolicy {
   readonly rules: readonly ApprovalRule[];
 }
+
+/**
+ * What an owner can actually route something to.
+ *
+ * `needs-review` is the cascade saying it does not know, and node 2b never
+ * answers it — so granting a stated route anything for it is a rule that can
+ * never fire, and listing one invites a reader to think it can.
+ */
+const statableCategories: readonly MailCategory[] = allCategories.filter(
+  (category) => category !== 'needs-review',
+);
 
 /**
  * The proposed default, to be amended rather than accepted.
@@ -145,29 +181,48 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
     ).map((category): ApprovalRule => ({ category, action: 'move', approval: 'ask' })),
     { category: 'needs-review', action: 'move', approval: 'never' },
 
-    // --- trash: one category, on the owner's explicit instruction ----------
+    // --- trash: never on a model's word, whatever its confidence -----------
     // Not in the PRD at all: its vocabulary stops at Junk.
     //
-    // Cold prospecting is the largest single category in the target mailbox —
-    // 16% of 400 messages, ahead of the owner's own client correspondence —
-    // and the owner asked for it to leave without being asked each time,
-    // having been shown that number. It is the only `auto` this policy grants
-    // beyond tagging, and the only automatic action anywhere in the agent that
-    // removes mail from where the owner would look for it.
+    // This was `auto` for cold prospecting, granted on a measured fact — 16% of
+    // the target mailbox, ahead of the owner's own client correspondence — and
+    // withdrawn on a second one. Over the same 400 messages the rule took 89
+    // under Mistral and 11 under Qwen: 78 messages, 20% of the mailbox,
+    // deleted or kept by nothing but which model was deployed.
     //
-    // The floor is 0.9, above the 0.8 the filing rules use, and it is standing
-    // in for evidence rather than expressing caution: the classifier has no
-    // measured accuracy on this vocabulary at all, and on the previous one the
-    // thirty human labels said its `important` verdict did not beat chance
-    // (docs/reviews/thirty-judgements.md). When the hundred and fifty labels
-    // land, this number should be set from them and not from judgement.
-    { category: 'prospection-commerciale-non-sollicitee', action: 'trash', approval: 'auto', minConfidence: 0.9 },
+    // That is not a calibration problem, and the 0.9 floor it carried could not
+    // have caught it. Both models were confident; they disagreed about what
+    // cold prospecting is. A rule whose scope is a property of the model has no
+    // business being the one action that becomes irreversible by the passage of
+    // time.
+    ...allCategories.map(
+      (category): ApprovalRule => ({ category, action: 'trash', approval: 'ask' }),
+    ),
 
-    // Every other category asks, for the reason the PRD does not cover: the
-    // trash is the only place where doing nothing eventually destroys.
-    ...allCategories
-      .filter((category) => category !== 'prospection-commerciale-non-sollicitee')
-      .map((category): ApprovalRule => ({ category, action: 'trash', approval: 'ask' })),
+    // The one path to an automatic deletion, and it does not run on a verdict.
+    // A stated route is the owner naming a sender or a list; it answers the
+    // same whichever model is loaded, and it is the only place in this policy
+    // where an owner can arm something irreversible deliberately.
+    ...statableCategories.map(
+      (category): ApprovalRule => ({
+        category,
+        action: 'trash',
+        approval: 'auto',
+        decidedBy: 'stated-route',
+      }),
+    ),
+
+    // Filing follows the same rule, for the same reason at lower stakes: what
+    // the owner routed, the agent files; what it worked out for itself, it
+    // proposes.
+    ...statableCategories.map(
+      (category): ApprovalRule => ({
+        category,
+        action: 'move',
+        approval: 'auto',
+        decidedBy: 'stated-route',
+      }),
+    ),
 
     // --- drafting: writing is free, sending is not --------------------------
     // A draft in Drafts is a proposal the owner reads before anything leaves.
@@ -203,15 +258,19 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
  */
 export function approvalFor(
   policy: ApprovalPolicy,
-  category: MailCategory,
+  decision: Decision,
   action: MailAction,
-  confidence: number,
 ): Approval {
-  const rule = policy.rules.find((r) => r.category === category && r.action === action);
+  const applies = (r: ApprovalRule): boolean => r.category === decision.category && r.action === action;
+  // A rule naming the deciding node wins over one that names none, whatever
+  // order they were written in: the specific grant is the point of having it.
+  const rule =
+    policy.rules.find((r) => applies(r) && r.decidedBy === decision.decidedBy) ??
+    policy.rules.find((r) => applies(r) && r.decidedBy === undefined);
   if (rule === undefined) return 'never';
   // Below its floor a rule does not apply, and the fallback is to ask rather
   // than to refuse: the agent still has something to propose.
-  if (rule.minConfidence !== undefined && confidence < rule.minConfidence) {
+  if (rule.minConfidence !== undefined && decision.confidence < rule.minConfidence) {
     return rule.approval === 'never' ? 'never' : 'ask';
   }
   return rule.approval;
@@ -220,10 +279,41 @@ export function approvalFor(
 /** Renders the policy as a table, for an owner deciding whether to accept it. */
 export function describePolicy(policy: ApprovalPolicy): string {
   const auto = policy.rules.filter((r) => r.approval === 'auto');
-  const lines = ['Runs without asking:'];
-  for (const r of auto) {
-    const floor = r.minConfidence === undefined ? '' : ` (confidence ≥ ${String(r.minConfidence)})`;
-    lines.push(`  ${r.action.padEnd(8)} ${r.category}${floor}`);
+  // Collapsed by what has to be true, not listed per category. Seventeen rows
+  // saying the same thing about seventeen categories is a table nobody reads,
+  // and this table exists to be read: it is what an owner approves.
+  const groups = new Map<string, { rule: ApprovalRule; categories: string[] }>();
+  for (const rule of auto) {
+    const key = `${rule.action}|${String(rule.decidedBy)}|${String(rule.minConfidence)}`;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, { rule, categories: [rule.category] });
+    else group.categories.push(rule.category);
+  }
+
+  const total = new Set(policy.rules.map((r) => r.category)).size;
+  const render = (entry: { rule: ApprovalRule; categories: string[] }): string => {
+    const { rule, categories } = entry;
+    const what =
+      categories.length === total
+        ? 'any category'
+        : categories.length > 4
+          ? `${String(categories.length)} categories`
+          : categories.join(', ');
+    const floor = rule.minConfidence === undefined ? '' : ` (confidence ≥ ${String(rule.minConfidence)})`;
+    return `  ${rule.action.padEnd(8)} ${what}${floor}`;
+  };
+
+  const lines: string[] = [];
+  const unqualified = [...groups.values()].filter((g) => g.rule.decidedBy === undefined);
+  if (unqualified.length > 0) {
+    lines.push('Runs without asking:');
+    for (const g of unqualified) lines.push(render(g));
+  }
+  const qualified = [...groups.values()].filter((g) => g.rule.decidedBy !== undefined);
+  if (qualified.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push('Runs without asking, but only on a source you named:');
+    for (const g of qualified) lines.push(render(g));
   }
   lines.push('', `Everything else asks first, or is not offered. ${String(policy.rules.length)} rules.`);
   return lines.join('\n');

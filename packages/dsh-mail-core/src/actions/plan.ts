@@ -39,7 +39,11 @@ export function planActions(
   policy: ApprovalPolicy,
 ): PlannedAction[] {
   const planned: PlannedAction[] = [];
-  const { category, confidence, messageId } = trace;
+  const { category, confidence, decidedBy, messageId } = trace;
+  // The policy needs to know which node settled it, not only how sure it was:
+  // a model may answer 1.0 and a stated route always does, and only one of
+  // those may arm something irreversible.
+  const decision = { category, confidence, decidedBy };
 
   // Tagging always follows a classification: it is what the classification
   // *is*, on a server that can store it.
@@ -55,7 +59,7 @@ export function planActions(
       messageId,
       action: 'keyword',
       keywords,
-      approval: approvalFor(policy, category, 'keyword', confidence),
+      approval: approvalFor(policy, decision, 'keyword'),
       because: capabilities.customKeywords
         ? `tag as ${category}`
         : `no custom keywords on this server; flag as ${category}`,
@@ -69,7 +73,7 @@ export function planActions(
       messageId,
       action: 'move',
       folder,
-      approval: approvalFor(policy, category, 'move', confidence),
+      approval: approvalFor(policy, decision, 'move'),
       because: `${category} belongs in ${folder}`,
     });
   }
@@ -83,7 +87,7 @@ export function planActions(
     planned.push({
       messageId,
       action: 'trash',
-      approval: approvalFor(policy, category, 'trash', confidence),
+      approval: approvalFor(policy, decision, 'trash'),
       because: `${category} is mail the owner does not want`,
     });
   }
