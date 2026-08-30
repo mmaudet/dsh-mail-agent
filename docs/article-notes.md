@@ -1368,6 +1368,80 @@ cible mal placée.
 Et la contre-mesure est la même que les précédentes, à un cran au-dessus :
 faire payer d'avance. Pas seulement l'hypothèse — la question elle-même.
 
+## §19 — Tout était construit, rien ne tournait
+
+Un `grep` d'une ligne, à la fin d'une journée de construction : qui appelle
+`learn` ? Personne. `readCorrections` ? Personne. `executePlan`,
+`planActions` ? Personne en dehors de leur propre fichier. `runCascade` ?
+Uniquement l'outil `classify_email`, un message à la fois, quand un modèle le
+demande.
+
+Le magasin était vide en production. La passe d'apprentissage n'avait rien à
+apprendre, la passe de corrections rien à lire, une route énoncée n'aurait rien
+fait. **Tout ce que la semaine avait produit était de la machinerie pour un
+runtime qui n'existait pas.**
+
+C'est un mode de défaillance qui n'a rien à voir avec la qualité du code. Chaque
+pièce était testée, chaque pièce était juste, et l'ensemble ne faisait rien.
+Personne ne l'aurait vu en lisant un diff.
+
+### Quatre défauts en quinze minutes
+
+La boucle écrite, la première passe réelle sur la vraie boîte a trouvé en un
+quart d'heure ce que des centaines de tests unitaires n'avaient pas :
+
+**Un 429 tuait le processus entier.** Le nœud 6 est le seul qui sort du
+processus, donc le seul qui peut échouer pour des raisons étrangères au message.
+Le commentaire au-dessus de l'appel promettait depuis le premier jour qu'un
+modèle en échec était une réponse et non une erreur. Le code ne l'avait jamais
+fait. Un commentaire qui décrit une intention que le code n'implémente pas est
+pire qu'un commentaire absent : il empêche de regarder.
+
+**L'agent poursuivait ses propres écritures.** Poser un mot-clé est une
+modification ; le sondage suivant remonte le message comme changé ; l'agent le
+reclasse. La même newsletter trois fois en neuf minutes, trois appels modèle
+pour une arrivée, et une boucle qui aurait tourné aussi longtemps que l'agent.
+Aucun test unitaire ne pouvait la voir : elle naît de l'interaction entre
+l'écriture et la lecture, à travers un serveur.
+
+**Le nœud 7 effaçait la raison.** Trouvé par le test écrit pour le correctif
+précédent, ce qui est le seul cas de la journée où un test a devancé la réalité.
+Confiance 0 passe sous le seuil, donc « le modèle est injoignable » devenait
+« confiance insuffisante » — la phrase qui rendait une panne lisible était
+détruite par la dégradation elle-même.
+
+**La limite jetait du courrier**, et celui-là est un raisonnement faux, pas un
+oubli. J'avais fait avancer le curseur au-delà de ce que la limite n'avait pas
+examiné, en me disant qu'un arriéré plus grand que la limite serait resondé
+indéfiniment. Faux : chaque passage avance jusqu'à ce qu'il a examiné, donc
+chaque passage progresse. Ce que la règle faisait réellement, c'était perdre du
+courrier — l'agent arrêté une nuit rencontre deux cents messages, en classe
+cent, et abandonne le reste définitivement. **Une limite est un débit, pas un
+filtre.**
+
+### Le correctif qui avait lui-même un trou
+
+La reprise après panne ne se déclenchait que si le message repassait dans le
+sondage. Or rien ne fait changer un message qu'on n'a jamais réussi à classer :
+la notification GitHub gelée par le 429 y serait restée pour toujours. Il a
+fallu aller les chercher par leur nom.
+
+C'est la troisième fois de la journée qu'un correctif contient la même erreur
+que ce qu'il corrige, à un cran de profondeur.
+
+### Ce que le premier message classé a dit
+
+Le tout premier message que l'agent a classé en production était la notification
+GitHub d'un échec CI — sur ce dépôt. CI était rouge depuis mes commits de
+l'après-midi : six erreurs de lint dans mes propres tests. J'avais lancé
+`pnpm -r lint`, qui répond qu'aucun paquet de l'espace de travail n'a de script
+`lint`, et je m'étais arrêté là. Le script est à la racine.
+
+L'agent m'a appris que j'avais cassé la chaîne d'intégration en me classant la
+notification qui me le disait. C'est une anecdote, mais elle porte la thèse :
+**un agent qui tourne est un instrument, et un instrument trouve ce qu'aucune
+lecture ne trouve.**
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
