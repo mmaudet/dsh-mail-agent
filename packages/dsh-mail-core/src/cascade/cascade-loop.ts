@@ -20,6 +20,15 @@
  */
 
 import { bandOf, type MailAddress, type MailCategory, type MailMessage } from '../types.js';
+
+/**
+ * What node 6 writes when it could not ask.
+ *
+ * Exported because the loop reads it back off a stored trace to decide whether
+ * a message is worth asking about again — a rate limit must not become a
+ * permanent verdict.
+ */
+export const MODEL_UNREACHABLE = 'the model could not be reached';
 import {
   DEFAULT_CONFIDENCE_THRESHOLD,
   type CascadeContext,
@@ -182,7 +191,7 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
       raw = {
         category: 'needs-review',
         confidence: 0,
-        rationale: `the model could not be reached: ${cause.slice(0, 120)}`,
+        rationale: `${MODEL_UNREACHABLE}: ${cause.slice(0, 120)}`,
       };
     }
     // A colleague cannot be junked or filed as a newsletter on a model's

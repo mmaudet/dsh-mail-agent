@@ -242,3 +242,59 @@ describe("the limit bounds the pass, and says what that cost", () => {
     store.close();
   });
 });
+
+describe('the agent does not chase its own writes', () => {
+  it('leaves a message it has already decided alone', async () => {
+    // Observed on the first real run: writing a keyword is an update, the next
+    // poll reports the message as changed, and the agent classifies it again —
+    // three model calls in nine minutes for one arrival.
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    const { service } = mailbox([change('a', 'c1')], [message('a')]);
+
+    const first = await runAgent({ mailbox: service, store, context: CONTEXT, model });
+    const second = await runAgent({ mailbox: service, store, context: CONTEXT, model });
+
+    expect(first.classified).toHaveLength(1);
+    expect(second.classified).toHaveLength(0);
+    expect(second.alreadyDecided).toBe(1);
+    store.close();
+  });
+
+  it('asks again about one the model could not be reached for', async () => {
+    // Nothing was ever asked about it, so leaving it alone would make a
+    // moment's rate limit a permanent verdict.
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    const { service } = mailbox([change('a', 'c1')], [message('a')]);
+    let down = true;
+    const flaky: ClassifierModel = {
+      classify: () =>
+        down
+          ? Promise.reject(new Error('429 rate limited'))
+          : Promise.resolve({ category: 'veille-newsletter', confidence: 0.9, rationale: 'r' }),
+    };
+
+    const first = await runAgent({ mailbox: service, store, context: CONTEXT, model: flaky });
+    expect(first.modelUnreachable).toBe(1);
+    expect(store.traceFor('a')?.category).toBe('needs-review');
+
+    down = false;
+    const second = await runAgent({ mailbox: service, store, context: CONTEXT, model: flaky });
+    expect(second.classified).toHaveLength(1);
+    expect(store.traceFor('a')?.category).toBe('veille-newsletter');
+    store.close();
+  });
+
+  it('says how many it passed over, so a quiet pass is not a broken one', async () => {
+    const store = new MailStore(':memory:');
+    store.saveCursor('INBOX', 'c0');
+    const { service } = mailbox([change('a', 'c1')], [message('a')]);
+
+    await runAgent({ mailbox: service, store, context: CONTEXT, model });
+    const pass = await runAgent({ mailbox: service, store, context: CONTEXT, model });
+
+    expect(describePass(pass)).toContain('1 already decided');
+    store.close();
+  });
+});

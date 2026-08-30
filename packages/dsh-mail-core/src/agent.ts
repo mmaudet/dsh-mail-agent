@@ -20,7 +20,7 @@
 import { DEFAULT_POLICY, type ApprovalPolicy } from './actions/approval.js';
 import { executePlan, type ExecutionFailure } from './actions/execute.js';
 import { planActions } from './actions/plan.js';
-import { runCascade } from './cascade/cascade-loop.js';
+import { MODEL_UNREACHABLE, runCascade } from './cascade/cascade-loop.js';
 import type { CascadeContext, ClassifierModel, DecisionTrace } from './cascade/types.js';
 import type { MailService } from './mail-service.js';
 import type { MailStore } from './store/mail-store.js';
@@ -68,7 +68,16 @@ export interface AgentPass {
    * mail produce the same categories and are not the same problem.
    */
   readonly modelUnreachable: number;
+  /**
+   * Changed messages the agent had already decided.
+   *
+   * Mostly its own keyword writes coming back as updates, so a healthy pass
+   * has more of these than it classifies once the mailbox is quiet.
+   */
+  readonly alreadyDecided: number;
 }
+
+
 
 /**
  * One pass over what has changed since the last one.
@@ -100,6 +109,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
       dryRun,
       truncated: false,
       modelUnreachable: 0,
+      alreadyDecided: 0,
     };
   }
 
@@ -115,8 +125,29 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     seen.add(change.id);
     ids.push(change.id);
   }
-  const truncated = ids.length > limit;
-  const batch = ids.slice(0, limit);
+  // A message the agent has already decided is not re-decided, and this is not
+  // an optimisation.
+  //
+  // Writing a keyword is an update, and the next poll reports the message as
+  // changed — so the agent's own write brings it back to be classified again,
+  // every pass, forever. Observed on the first real run: the same newsletter
+  // was classified three times in nine minutes, three model calls for one
+  // arrival.
+  //
+  // The exception is a message whose trace says the model could not be
+  // reached. Nothing was ever asked about it, so leaving it alone would make a
+  // moment's rate limit permanent.
+  //
+  // An owner moving a message is a correction, and reading that is
+  // `readCorrections`'s job, not this one's: re-deciding on the owner's move
+  // would silently overwrite the very disagreement worth reading.
+  const fresh = ids.filter((id) => {
+    const seenBefore = store.traceFor(id);
+    return seenBefore === null || seenBefore.rationale.startsWith(MODEL_UNREACHABLE);
+  });
+  const skipped = ids.length - fresh.length;
+  const truncated = fresh.length > limit;
+  const batch = fresh.slice(0, limit);
 
   const messages = await mailbox.getMessages(batch);
   const byId = new Map(messages.map((m) => [m.id, m]));
@@ -147,7 +178,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     );
 
     classified.push(trace);
-    if (trace.rationale.startsWith('the model could not be reached')) unreachable += 1;
+    if (trace.rationale.startsWith(MODEL_UNREACHABLE)) unreachable += 1;
     performed += result.performed.length;
     proposed += result.proposed.length;
     failures.push(...result.failed);
@@ -173,6 +204,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     dryRun,
     truncated,
     modelUnreachable: unreachable,
+    alreadyDecided: skipped,
   };
 }
 
@@ -212,7 +244,8 @@ export function describePass(pass: AgentPass): string {
 
   const mode = pass.dryRun ? 'dry run — nothing was written' : 'writing';
   const lines = [
-    `${pass.folder}: ${String(pass.seen)} changed, ${String(pass.classified.length)} classified (${mode})`,
+    `${pass.folder}: ${String(pass.seen)} changed, ${String(pass.classified.length)} classified (${mode})` +
+      (pass.alreadyDecided > 0 ? `, ${String(pass.alreadyDecided)} already decided` : ''),
   ];
   if (pass.truncated) {
     lines.push(`  the limit stopped this pass; the rest were passed over, not deferred`);
