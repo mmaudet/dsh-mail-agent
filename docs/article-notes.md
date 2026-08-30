@@ -1112,6 +1112,54 @@ The number to publish is not the percentage. It is that **the unit of
 recurrence in a mailbox is the conversation, not the correspondent**, and that
 finding it took four experiments, two mailboxes and a corrected sample size.
 
+## §16 — Le cache ne fait pas qu'économiser, il concentre
+
+The last and most useful measurement: 1000 messages over 40 days, threads and
+patterns accumulating as the running agent would have them.
+
+**36% settled without a model call, around 45% in steady state**, climbing from
+10% as the store filled. Every earlier number in this project — six percent,
+ten, fourteen — was a cold-start measurement, and the pessimistic conclusion
+built on them was measuring the first hour of a system designed to run for
+months.
+
+Learned patterns, written off after three holdouts, settle 12% once given forty
+days instead of half a day. The holdouts were right about what they measured
+and wrong about what it meant.
+
+### And then the number beside it
+
+**61% of the mailbox came back `important`.** The same mailbox, cold, gave 24%.
+
+Everything important means nothing is. A triage that flags three messages in
+five has not triaged anything, and the 36% saving is bought at exactly that
+price.
+
+The cause is the saving. Node 1 reuses a thread's category; node 3 reuses a
+sender's. Both were built to reuse a decision and **neither knows whether the
+decision was right**, so a bias the classifier holds evenly gets amplified
+evenly. One `important` early in a thread becomes `important` for every reply.
+
+**A cache does not only save calls. It concentrates whatever the thing behind
+it leans towards.** That belongs in any write-up about cascade architectures,
+because the efficiency metric and the quality collapse are the same mechanism
+observed twice, and the first is the one people report.
+
+The operational consequence: **an efficiency figure for a cascade is
+uninterpretable without the category distribution beside it.** A number that
+improves while the answers converge on one label is not obviously an
+improvement, and this project would have published 36% as a success if the
+distribution had not been printed on the same screen.
+
+### The correction that keeps being the same one
+
+Cold-start measurements described as steady-state. A 256-message sample
+described as a mailbox. A holdout window shorter than the recurrence it was
+looking for. Three separate times, the measurement was real and the
+*description* of what it measured was wrong — which is a different failure from
+a bad measurement and harder to catch, because nothing about the number looks
+suspicious.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
