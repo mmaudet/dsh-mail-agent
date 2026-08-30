@@ -259,10 +259,33 @@ const toldOverlap = rows.map((r) => overlap(r.told, r.theirs));
 console.log(`\n  ${String(rows.length)} drafts, each written twice from the same message\n`);
 console.log('  content words shared with what the owner actually sent');
 console.log(`    drafted blind             ${String(Math.round(mean(blindOverlap) * 100)).padStart(3)}%`);
-console.log(`    given the owner's line    ${String(Math.round(mean(toldOverlap) * 100)).padStart(3)}%`);
+console.log(`    drafted from their note   ${String(Math.round(mean(toldOverlap) * 100)).padStart(3)}%`);
+const derivedOverlap = rows.map((r) => overlap(r.fromDerived, r.theirs));
+if (DERIVE) {
+  console.log(`    drafted from a real line  ${String(Math.round(mean(derivedOverlap) * 100)).padStart(3)}%`);
+}
 console.log(
-  `    better with the line      ${String(rows.filter((_, i) => (toldOverlap[i] ?? 0) > (blindOverlap[i] ?? 0)).length)}/${String(rows.length)}`,
+  `\n    note beats blind          ${String(rows.filter((_, i) => (toldOverlap[i] ?? 0) > (blindOverlap[i] ?? 0)).length)}/${String(rows.length)}`,
 );
+if (DERIVE) {
+  console.log(
+    `    line beats blind          ${String(rows.filter((_, i) => (derivedOverlap[i] ?? 0) > (blindOverlap[i] ?? 0)).length)}/${String(rows.length)}`,
+  );
+}
+
+// A one-word send and a draft the model declined to write are not answer keys,
+// and both turned up in ten real pairs. They are reported rather than dropped
+// silently, because deciding what counts is exactly where a measurement bends.
+const usable = rows.filter((r) => words(r.theirs) >= 5 && r.blind !== '' && (!DERIVE || r.fromDerived !== ''));
+if (usable.length < rows.length) {
+  const keep = (xs) => xs.filter((_, i) => usable.includes(rows[i]));
+  console.log(`\n  excluding ${String(rows.length - usable.length)} pair(s) with no usable answer key`);
+  console.log(`    drafted blind             ${String(Math.round(mean(keep(blindOverlap)) * 100)).padStart(3)}%`);
+  console.log(`    drafted from their note   ${String(Math.round(mean(keep(toldOverlap)) * 100)).padStart(3)}%`);
+  if (DERIVE) {
+    console.log(`    drafted from a real line  ${String(Math.round(mean(keep(derivedOverlap)) * 100)).padStart(3)}%`);
+  }
+}
 console.log(`\n  length, against the owner's median of ${String(style.medianWords)} words`);
 console.log(`    they wrote                ${String(Math.round(mean(rows.map((r) => words(r.theirs))))).padStart(3)}`);
 console.log(`    drafted blind             ${String(Math.round(mean(rows.map((r) => words(r.blind))))).padStart(3)}`);
