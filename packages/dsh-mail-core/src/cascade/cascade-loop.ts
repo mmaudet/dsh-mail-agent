@@ -160,7 +160,31 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
   //    when the six above all declined, and only when one was handed in.
   if (settled === null && model !== null) {
     const stepStart = now();
-    const raw = await model.classify(message, context);
+    // The one node that leaves the process, and so the one that can fail for
+    // reasons having nothing to do with the message: a rate limit, an expired
+    // token, a gateway with a lapsed certificate.
+    //
+    // This block used to be unguarded while the comment above it claimed a
+    // failing model was an answer rather than an error. The first real run
+    // found the difference — one 429 on one message ended the pass and the
+    // process with it.
+    //
+    // The failure is answered, not swallowed. `needs-review` is what the
+    // cascade says when it does not know, the rationale names the cause so an
+    // outage is legible in the traces rather than looking like a day of
+    // unusually ambiguous mail, and `usedModel` stays true because the call
+    // did leave the process and a failed call must not read as a free settle.
+    let raw: NodeVerdict;
+    try {
+      raw = await model.classify(message, context);
+    } catch (err: unknown) {
+      const cause = err instanceof Error ? err.message : String(err);
+      raw = {
+        category: 'needs-review',
+        confidence: 0,
+        rationale: `the model could not be reached: ${cause.slice(0, 120)}`,
+      };
+    }
     // A colleague cannot be junked or filed as a newsletter on a model's
     // say-so. Rather than substitute a category of our own, the answer
     // degrades to the honest non-answer: something is off, a person looks.
@@ -192,7 +216,15 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
     finalVerdict = {
       category: 'needs-review',
       confidence: settled.verdict.confidence,
-      rationale: 'confidence is below the threshold; left for review',
+      // A verdict that is already `needs-review` keeps its own reason.
+      // Degrading it to `needs-review` adds nothing and would erase why —
+      // and the reason that matters most is the one node 6 writes when it
+      // could not reach the model at all, which arrives here at confidence 0
+      // and would otherwise read as a message nobody could classify.
+      rationale:
+        settled.verdict.category === 'needs-review'
+          ? settled.verdict.rationale
+          : 'confidence is below the threshold; left for review',
     };
     finalDecidedBy = 'below-threshold';
     steps.push({ node: 'below-threshold', verdict: finalVerdict, durationMs: Math.max(0, now() - node7Start) });

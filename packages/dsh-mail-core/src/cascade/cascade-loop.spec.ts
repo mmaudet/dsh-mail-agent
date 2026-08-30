@@ -761,3 +761,71 @@ describe('a route the owner stated beats anything the agent works out', () => {
     expect(trace.decidedBy).toBe('llm');
   });
 });
+
+describe('the one node that leaves the process is the one that can fail', () => {
+  it('answers a model failure instead of throwing it', async () => {
+    // Found by the first real run: one 429 on one message ended the pass and
+    // the process with it, while the comment above the call claimed a failing
+    // model was an answer rather than an error.
+    const model: ClassifierModel = {
+      classify: () => Promise.reject(new Error('429 rate limited')),
+    };
+    const trace = await runCascade(msg({ id: 'f1' }), { context: CONTEXT, model });
+
+    expect(trace.category).toBe('needs-review');
+    expect(trace.rationale).toContain('the model could not be reached');
+    expect(trace.rationale).toContain('429');
+  });
+
+  it('still counts the call, so a failure cannot read as a free settle', async () => {
+    // The efficiency KPI counts messages settled without the model. A failed
+    // call left the process and produced nothing; counting it as free would
+    // make an outage look like the cheap nodes suddenly working.
+    const model: ClassifierModel = {
+      classify: () => Promise.reject(new Error('gateway certificate has expired')),
+    };
+    const trace = await runCascade(msg({ id: 'f2' }), { context: CONTEXT, model });
+
+    expect(trace.usedModel).toBe(true);
+    expect(trace.decidedBy).toBe('below-threshold');
+  });
+
+  it('keeps going for the next message', async () => {
+    let calls = 0;
+    const model: ClassifierModel = {
+      classify: () => {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject(new Error('transient'))
+          : Promise.resolve({ category: 'veille-newsletter', confidence: 0.9, rationale: 'r' });
+      },
+    };
+    const first = await runCascade(msg({ id: 'f3' }), { context: CONTEXT, model });
+    const second = await runCascade(msg({ id: 'f4' }), { context: CONTEXT, model });
+
+    expect(first.category).toBe('needs-review');
+    expect(second.category).toBe('veille-newsletter');
+  });
+});
+
+describe('node 7 degrades an answer without erasing why', () => {
+  it('keeps the reason a needs-review already carries', async () => {
+    const model: ClassifierModel = {
+      classify: () => Promise.reject(new Error('gateway unreachable')),
+    };
+    const trace = await runCascade(msg({ id: 'f5' }), { context: CONTEXT, model });
+    // Otherwise an outage and a day of unusually ambiguous mail produce
+    // identical traces, and only one of them is a problem to fix.
+    expect(trace.rationale).toContain('gateway unreachable');
+    expect(trace.rationale).not.toContain('below the threshold');
+  });
+
+  it('still explains an ordinary low-confidence answer', async () => {
+    const model: ClassifierModel = {
+      classify: () => Promise.resolve({ category: 'veille-newsletter', confidence: 0.2, rationale: 'a guess' }),
+    };
+    const trace = await runCascade(msg({ id: 'f6' }), { context: CONTEXT, model });
+    expect(trace.category).toBe('needs-review');
+    expect(trace.rationale).toContain('below the threshold');
+  });
+});

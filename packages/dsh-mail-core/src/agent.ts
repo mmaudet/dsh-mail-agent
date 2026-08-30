@@ -60,6 +60,14 @@ export interface AgentPass {
   readonly dryRun: boolean;
   /** True when the limit stopped the pass before the changes ran out. */
   readonly truncated: boolean;
+  /**
+   * Messages the model could not be asked about.
+   *
+   * Counted and reported rather than left to be inferred from a pile of
+   * `needs-review`: a gateway that is down and a day of unusually ambiguous
+   * mail produce the same categories and are not the same problem.
+   */
+  readonly modelUnreachable: number;
 }
 
 /**
@@ -91,6 +99,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
       failures: [],
       dryRun,
       truncated: false,
+      modelUnreachable: 0,
     };
   }
 
@@ -116,6 +125,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
   const failures: ExecutionFailure[] = [];
   let performed = 0;
   let proposed = 0;
+  let unreachable = 0;
 
   for (const id of batch) {
     const message = byId.get(id);
@@ -137,6 +147,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     );
 
     classified.push(trace);
+    if (trace.rationale.startsWith('the model could not be reached')) unreachable += 1;
     performed += result.performed.length;
     proposed += result.proposed.length;
     failures.push(...result.failed);
@@ -161,6 +172,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     failures,
     dryRun,
     truncated,
+    modelUnreachable: unreachable,
   };
 }
 
@@ -222,6 +234,12 @@ export function describePass(pass: AgentPass): string {
     for (const [category, n] of [...byCategory.entries()].sort((a, b) => b[1] - a[1])) {
       lines.push(`    ${String(n).padStart(4)}  ${category}`);
     }
+  }
+  if (pass.modelUnreachable > 0) {
+    lines.push(
+      `  the model could not be reached for ${String(pass.modelUnreachable)} of them —` +
+        ' those are `needs-review` because nothing asked, not because nothing was clear',
+    );
   }
   for (const f of pass.failures) lines.push(`  failed: ${f.action.action} ${f.error}`);
   return lines.join('\n');

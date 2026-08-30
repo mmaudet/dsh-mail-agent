@@ -85,21 +85,33 @@ const mailbox = new JmapAdapter({
   identityId: process.env.MAIL_SENTINEL_JMAP_IDENTITY_ID ?? 'x',
 });
 
+function ask(options) {
+  return fetch(`${BASE}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` },
+    body: JSON.stringify({
+      model: options.model,
+      temperature: 0,
+      max_tokens: 300,
+      messages: [
+        { role: 'system', content: options.system },
+        { role: 'user', content: options.messages[0].content.map((b) => b.text).join('') },
+      ],
+    }),
+  });
+}
+
 const llm = {
   async *stream(options) {
-    const r = await fetch(`${BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` },
-      body: JSON.stringify({
-        model: options.model,
-        temperature: 0,
-        max_tokens: 300,
-        messages: [
-          { role: 'system', content: options.system },
-          { role: 'user', content: options.messages[0].content.map((b) => b.text).join('') },
-        ],
-      }),
-    });
+    // A rate limit is the provider pacing us, not a verdict about the message.
+    // The cascade now answers a failed call rather than throwing, so without
+    // this a busy minute would file real mail as `needs-review`.
+    let r = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      r = await ask(options);
+      if (r.status !== 429 && r.status < 500) break;
+      await new Promise((res) => setTimeout(res, 1500 * 2 ** attempt));
+    }
     if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 120)}`);
     const body = await r.json();
     yield { type: 'text-delta', index: 0, text: body.choices?.[0]?.message?.content ?? '' };
