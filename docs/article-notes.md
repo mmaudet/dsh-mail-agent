@@ -863,6 +863,66 @@ could not:
 The last row is the one most projects never build, and it is the only one that
 produced a number anybody would put in a business case.
 
+## §11 — Le pari du PRD, mesuré, et il ne paie pas
+
+PRD section 4.2 bets that learned patterns recover the cascade's efficiency:
+classify a recurring sender once, settle every message from it free thereafter.
+Measured with a holdout — 100 older messages teach, 100 newer are the test,
+because learning and measuring on the same messages is circular:
+
+| | settled free |
+|---|---|
+| no patterns | 10% |
+| with sender patterns | **12%** |
+
+Four patterns from 100 decisions, catching two messages.
+
+### The reason is granularity, not thresholds
+
+The obvious reading is that requiring three unanimous observations is too
+strict. It is not the binding constraint: **in a hundred messages almost no
+sender appears three times.** A few days of inbox is mostly one-off
+correspondents.
+
+The largest recurring source in this mailbox is a mailing list, and its messages
+come from **many different senders**. A sender pattern cannot catch a mailing
+list, ever, however long it runs. RFC 2919 gives it a `List-Id`, and the list is
+the thing that has a category — not each person who posts to it.
+
+**The unit of recurrence is not the unit the specification assumed.** That is
+the finding, and no amount of tuning the thresholds would have produced it —
+only a holdout on real mail.
+
+### The rule that refused to learn was right
+
+Messages from that same list came back `standard` on one and `newsletter-tech`
+on another. Node 3's unanimity requirement refused to learn from it, which is
+exactly what it was written for: a source the model cannot classify consistently
+is one a pattern must not answer for.
+
+Worth keeping for anyone building the same thing: **the restraint was load-
+bearing.** A majority vote over three samples would have learned a category for
+that list and made the model's inconsistency permanent and free.
+
+### Temperature 0 is nearly, not entirely, deterministic
+
+Two passes over the same 100 messages disagreed on five while only two patterns
+fired. Probed directly, twelve messages three times each:
+
+```
+  category unstable   : 0 of 12
+  confidence unstable : 1 of 12
+```
+
+The category holds; the confidence wanders between 0.8 and 0.9. With a
+threshold at 0.75 that is usually harmless — but a message whose confidence
+crosses a threshold changes category through node 7 without the model changing
+its mind.
+
+The operational consequence for anyone comparing models: **a three-point
+difference over a hundred messages is not a result.** This project's own
+benchmark should be read with that in mind.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
