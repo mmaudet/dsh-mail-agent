@@ -189,3 +189,24 @@ export {
   type ExecutionFailure,
   type ExecutionResult,
 } from './actions/execute.js';
+
+export {
+  learnStyle,
+  describeStyle,
+  ownWords,
+  MIN_REPLIES,
+  type LearnStyleOptions,
+  type StyleProfile,
+} from './drafts/style-profile.js';
+
+export {
+  draftReply,
+  draftable,
+  cleanDraft,
+  renderDraftRequest,
+  DRAFTABLE,
+  DRAFT_SYSTEM_PROMPT,
+  type Draft,
+  type DraftModel,
+  type DraftRequest,
+} from './drafts/draft-reply.js';
