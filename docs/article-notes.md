@@ -993,6 +993,54 @@ people are not categories. Any cascade architecture pitched on "most mail never
 reaches the expensive path" should be read against that, and the corpus that
 suggested 71% had one case per node by construction.
 
+## §13 — La quatrième mesure, et la première qui bouge
+
+Three measurements of the cascade's cost argument came back at two points, one
+point, and no advantage at all. The fourth moved.
+
+```
+without node 1: 200 classified, 188 model calls,  6% free
+with node 1   : 200 classified, 172 model calls, 14% free
+```
+
+**Eight percentage points, and the free rate more than doubled.**
+
+| | gain |
+|---|---|
+| learned patterns, by sender | +2 |
+| learned patterns, by `List-Id` | +1 |
+| learned patterns, second mailbox | none |
+| **thread continuity** | **+8** |
+
+### Why, and it is the same reason the others failed
+
+The consistency work established that a source with several purposes has
+several categories, and that most sources have several purposes. **Node 1 does
+not reason about sources.** A thread is one conversation about one thing — it is
+the unit that genuinely has a single category, where a sender is not.
+
+It also reaches the traffic the others could not. Patterns catch services,
+static rules catch bulk, and node 1 catches **people replying to each other**,
+which is what most of a real mailbox is.
+
+The general shape, and the part worth publishing: **three attempts failed
+because they were caching the wrong unit.** The measurements that said so were
+not wasted — they are what identified the right one. A cache is only as good as
+the thing it is keyed on, and finding that key took four experiments and two
+mailboxes.
+
+### And it is a saving bought with a risk
+
+Node 1 inherits a decision the model made, so a thread whose first message was
+misclassified propagates that misclassification to every reply. **It makes the
+classifier's first answer about a thread more consequential**, because it is
+reused rather than re-derived.
+
+Three refusals bound it — never inherit `needs-review`, never below a confidence
+floor, always the most recent decision — and they bound it rather than remove
+it. Worth being explicit about in a write-up that is otherwise about efficiency:
+the cheapest node in the cascade is also the one that compounds an error.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
