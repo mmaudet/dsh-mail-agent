@@ -20,11 +20,13 @@ import { dirname } from 'node:path';
 import {
   JmapAdapter,
   MailStore,
+  backfill,
   createLlmClassifier,
-  describePass,
-  runAgent,
+  describeBackfill,
   describeLearn,
+  describePass,
   learn,
+  runAgent,
 } from '../packages/dsh-mail-core/dist/index.js';
 
 const args = process.argv.slice(2);
@@ -34,8 +36,17 @@ const arg = (n, d) => {
 };
 
 const WRITE = args.includes('--write');
+// Replays a stretch of history instead of polling. The two are separate on
+// purpose: a backfill reaches backwards and never touches the poll's cursor.
+const SINCE = arg('since', null);
 const EVERY = arg('every', null);
-const LIMIT = Number(arg('limit', '100'));
+// A backfill covers a week; a poll covers three minutes. One default cannot
+// serve both, and a hundred would silently truncate the week.
+const SINCE_DEFAULT_LIMIT = () => (args.includes('--since') ? '3000' : '100');
+// A poll can afford to give up and let the next pass retry three minutes
+// later. A backfill has no next pass, so it waits the provider out.
+const RETRIES = Number(arg('retries', args.includes('--since') ? '7' : '4'));
+const LIMIT = Number(arg('limit', SINCE_DEFAULT_LIMIT()));
 const STORE = arg('store', `${process.env.HOME}/.dsh/mail-agent.db`);
 const FOLDER = arg('folder', 'INBOX');
 const MODEL = arg('model', 'Mistral-Small-3.2-24B-Instruct-2506-FP8');
@@ -147,13 +158,20 @@ function ask(options) {
 const llm = {
   async *stream(options) {
     // A rate limit is the provider pacing us, not a verdict about the message.
-    // The cascade now answers a failed call rather than throwing, so without
-    // this a busy minute would file real mail as `needs-review`.
+    // The cascade answers a failed call rather than throwing, so without this
+    // a busy minute files real mail as `needs-review` — measured on a backfill,
+    // where four attempts left 11 messages in 20 unclassified.
+    //
+    // The 429 here is `engine_overloaded` on a shared upstream pool, whose
+    // remedy is to wait. A backfill is not latency-sensitive, so it waits:
+    // seven attempts reaching a minute, rather than four reaching twelve
+    // seconds.
     let r = null;
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < RETRIES; attempt++) {
       r = await ask(options);
       if (r.status !== 429 && r.status < 500) break;
-      await new Promise((res) => setTimeout(res, 1500 * 2 ** attempt));
+      const wait = Math.min(60000, 2000 * 2 ** attempt);
+      await new Promise((res) => setTimeout(res, wait));
     }
     if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 120)}`);
     const body = await r.json();
@@ -182,6 +200,26 @@ const options = {
   dryRun: !WRITE,
   limit: LIMIT,
 };
+
+if (SINCE !== null) {
+  const since = new Date(SINCE);
+  if (Number.isNaN(since.getTime())) {
+    console.error(`Not a date: ${SINCE}`);
+    process.exit(2);
+  }
+  const result = await backfill({
+    ...options,
+    since,
+    limit: LIMIT,
+    pageSize: 25,
+    onPage: (done) => process.stderr.write(`\r  ${String(done)} examined`),
+  });
+  process.stderr.write('\n');
+  console.log(`\n${describeBackfill(result)}`);
+  if (result.classified.length > 0) console.log(`  ${describeLearn(learn(store))}`);
+  store.close();
+  process.exit(0);
+}
 
 let stopping = false;
 process.on('SIGINT', () => {
