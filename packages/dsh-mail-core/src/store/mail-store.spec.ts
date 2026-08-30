@@ -350,3 +350,34 @@ describe('stated routes are not learned patterns', () => {
     store.close();
   });
 });
+
+describe('the profile seeds the routes, and then stops mattering', () => {
+  it('writes the seed into an empty store', () => {
+    const store = new MailStore(':memory:');
+    expect(store.seedRoutes([
+      { listId: null, sender: 'nple@linagora.com', category: 'spam-formulaire-contact' },
+    ])).toBe(1);
+    expect(store.loadRoutes()).toHaveLength(1);
+    store.close();
+  });
+
+  it('leaves a store that already has routes alone', () => {
+    // Otherwise a route the owner removed at runtime comes back on the next
+    // restart, and one they added is silently outranked by a stale file.
+    const store = new MailStore(':memory:');
+    store.saveRoutes([{ listId: null, sender: 'kept@example.org', category: 'liste-diffusion' }]);
+
+    expect(store.seedRoutes([
+      { listId: null, sender: 'from-the-profile@example.org', category: 'veille-newsletter' },
+    ])).toBe(0);
+    expect(store.loadRoutes().map((r) => r.sender)).toStrictEqual(['kept@example.org']);
+    store.close();
+  });
+
+  it('does nothing when there is no seed', () => {
+    const store = new MailStore(':memory:');
+    expect(store.seedRoutes([])).toBe(0);
+    expect(store.countRoutes()).toBe(0);
+    store.close();
+  });
+});

@@ -311,6 +311,22 @@ export class MailStore {
     return row.n;
   }
 
+  /**
+   * Writes the seed routes, but only into a store that has none.
+   *
+   * The profile's list is a seed, not a record. Once the store holds routes,
+   * they are the truth and the profile is ignored — otherwise a route the
+   * owner removed at runtime would come back on the next restart, and a route
+   * they added would be silently outranked by a stale file.
+   *
+   * Returns what was written, so a caller can say whether it seeded or found.
+   */
+  seedRoutes(seed: readonly RoutingRule[]): number {
+    if (seed.length === 0 || this.countRoutes() > 0) return 0;
+    this.saveRoutes(seed);
+    return this.countRoutes();
+  }
+
   // --- learned patterns -----------------------------------------------------
 
   /**
