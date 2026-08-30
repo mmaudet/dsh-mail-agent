@@ -145,13 +145,29 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
     ).map((category): ApprovalRule => ({ category, action: 'move', approval: 'ask' })),
     { category: 'needs-review', action: 'move', approval: 'never' },
 
-    // --- trash: never automatic, whatever the category ----------------------
-    // Not in the PRD at all: its vocabulary stops at Junk. Offered as `ask`
-    // because an owner asked for it, and never as `auto`, because it is the
-    // only action whose effect becomes irreversible by the passage of time.
-    ...allCategories.map(
-      (category): ApprovalRule => ({ category, action: 'trash', approval: 'ask' }),
-    ),
+    // --- trash: one category, on the owner's explicit instruction ----------
+    // Not in the PRD at all: its vocabulary stops at Junk.
+    //
+    // Cold prospecting is the largest single category in the target mailbox —
+    // 16% of 400 messages, ahead of the owner's own client correspondence —
+    // and the owner asked for it to leave without being asked each time,
+    // having been shown that number. It is the only `auto` this policy grants
+    // beyond tagging, and the only automatic action anywhere in the agent that
+    // removes mail from where the owner would look for it.
+    //
+    // The floor is 0.9, above the 0.8 the filing rules use, and it is standing
+    // in for evidence rather than expressing caution: the classifier has no
+    // measured accuracy on this vocabulary at all, and on the previous one the
+    // thirty human labels said its `important` verdict did not beat chance
+    // (docs/reviews/thirty-judgements.md). When the hundred and fifty labels
+    // land, this number should be set from them and not from judgement.
+    { category: 'prospection-commerciale-non-sollicitee', action: 'trash', approval: 'auto', minConfidence: 0.9 },
+
+    // Every other category asks, for the reason the PRD does not cover: the
+    // trash is the only place where doing nothing eventually destroys.
+    ...allCategories
+      .filter((category) => category !== 'prospection-commerciale-non-sollicitee')
+      .map((category): ApprovalRule => ({ category, action: 'trash', approval: 'ask' })),
 
     // --- drafting: writing is free, sending is not --------------------------
     // A draft in Drafts is a proposal the owner reads before anything leaves.

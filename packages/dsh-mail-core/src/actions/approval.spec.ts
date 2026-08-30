@@ -77,10 +77,13 @@ describe('what runs without asking, and only that', () => {
     // Written out rather than counted, so widening the policy fails this test
     // by name instead of by an off-by-one nobody reads.
     //
-    // Only tagging. Every move and every draft is `ask`, on the evidence of
-    // the first dry run over a real mailbox.
+    // Tagging, plus exactly one destructive grant. Every move and every draft
+    // stays `ask`, on the evidence of the first dry run over a real mailbox.
     expect(auto.sort()).toStrictEqual(
-      CATEGORIES.map((c) => `keyword:${c}`).sort(),
+      [
+        ...CATEGORIES.map((c) => `keyword:${c}`),
+        'trash:prospection-commerciale-non-sollicitee',
+      ].sort(),
     );
   });
 
@@ -91,12 +94,26 @@ describe('what runs without asking, and only that', () => {
     }
   });
 
-  it('never trashes on its own, for any category', () => {
-    // The only action whose effect becomes irreversible by the passage of
-    // time: Gmail purges its trash after thirty days.
+  it('trashes on its own for exactly one category, and asks for the rest', () => {
+    // Trashing is the only action whose effect becomes irreversible by the
+    // passage of time — Gmail purges its trash after thirty days — so the one
+    // grant is named here and every other category is asserted against it.
+    //
+    // The owner authorised this after being shown that cold prospecting is 16%
+    // of their mailbox, ahead of their own client correspondence.
     for (const category of CATEGORIES) {
-      expect(approvalFor(DEFAULT_POLICY, category, 'trash', 1)).not.toBe('auto');
+      const approval = approvalFor(DEFAULT_POLICY, category, 'trash', 1);
+      if (category === 'prospection-commerciale-non-sollicitee') {
+        expect(approval).toBe('auto');
+      } else {
+        expect(approval).not.toBe('auto');
+      }
     }
+  });
+
+  it('will not trash unattended on a weak verdict', () => {
+    expect(approvalFor(DEFAULT_POLICY, 'prospection-commerciale-non-sollicitee', 'trash', 0.89)).toBe('ask');
+    expect(approvalFor(DEFAULT_POLICY, 'prospection-commerciale-non-sollicitee', 'trash', 0.9)).toBe('auto');
   });
 
   it('never moves what the owner is expected to act on', () => {
@@ -143,7 +160,11 @@ describe('the table can be read', () => {
     const described = describePolicy(DEFAULT_POLICY);
     expect(described).toContain('keyword  demande-interne');
     expect(described).toContain('Everything else asks first');
-    // Nothing that changes where a message lives runs unattended today.
+    // The destructive grant has to be legible, with its floor: an owner who
+    // reads this and misses it has not been told what they approved.
+    expect(described).toContain('trash    prospection-commerciale-non-sollicitee');
+    expect(described).toContain('0.9');
+    // Nothing that files a message elsewhere runs unattended.
     expect(described).not.toContain('move');
     expect(described).not.toContain('send');
   });
