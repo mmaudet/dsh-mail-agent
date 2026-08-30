@@ -175,3 +175,65 @@ describe('learned patterns', () => {
     db.close();
   });
 });
+
+describe('what a thread was decided to be', () => {
+  it('reports the most recent decision in the thread', () => {
+    // A thread that changed character — a notification someone replied to — is
+    // described by its latest message, not its first.
+    const db = store();
+    db.recordTrace(
+      trace({
+        messageId: 'a',
+        category: 'newsletter-notification',
+        startedAt: new Date('2026-08-01T00:00:00.000Z'),
+      }),
+      't1',
+    );
+    db.recordTrace(
+      trace({ messageId: 'b', category: 'important', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
+      't1',
+    );
+
+    expect(db.threadCategory('t1')).toBe('important');
+    expect(db.threadSize('t1')).toBe(2);
+    db.close();
+  });
+
+  it('refuses to inherit a non-answer', () => {
+    // Inheriting "I do not know" propagates it down a thread and makes it look
+    // like a decision.
+    const db = store();
+    db.recordTrace(trace({ messageId: 'a', category: 'needs-review' }), 't1');
+    expect(db.threadCategory('t1')).toBeNull();
+    db.close();
+  });
+
+  it('refuses to inherit a guess', () => {
+    // Node 1 settles at zero cost with no second opinion, so it inherits from
+    // a decision rather than from a low-confidence one.
+    const db = store();
+    db.recordTrace(trace({ messageId: 'a', category: 'important', confidence: 0.6 }), 't1');
+    expect(db.threadCategory('t1')).toBeNull();
+    expect(db.threadCategory('t1', 0.5)).toBe('important');
+    db.close();
+  });
+
+  it('knows nothing about a thread it has not seen, or about no thread at all', () => {
+    const db = store();
+    db.recordTrace(trace({ messageId: 'a' }), 't1');
+    expect(db.threadCategory('t2')).toBeNull();
+    expect(db.threadCategory(null)).toBeNull();
+    expect(db.threadSize(null)).toBe(0);
+    db.close();
+  });
+
+  it('keeps the thread when a message is re-decided', () => {
+    const db = store();
+    db.recordTrace(trace({ messageId: 'a', category: 'standard' }), 't1');
+    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1');
+
+    expect(db.threadSize('t1')).toBe(1);
+    expect(db.threadCategory('t1')).toBe('important');
+    db.close();
+  });
+});

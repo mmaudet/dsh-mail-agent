@@ -16,11 +16,12 @@
 import { DatabaseSync } from 'node:sqlite';
 
 import type { CascadeNode, DecisionTrace, LearnedPattern, TraceStep } from '../cascade/types.js';
-import { toMailCategory } from '../types.js';
+import { toMailCategory, type MailCategory } from '../types.js';
 
 const SCHEMA = `
 create table if not exists traces (
   message_id  text primary key,
+  thread_id   text,
   decided_by  text    not null,
   category    text    not null,
   confidence  real    not null,
@@ -31,6 +32,7 @@ create table if not exists traces (
   steps       text    not null
 );
 create index if not exists traces_started_at on traces (started_at);
+create index if not exists traces_thread on traces (thread_id);
 
 create table if not exists cursors (
   folder     text primary key,
@@ -67,6 +69,25 @@ export class MailStore {
     // will eventually meet.
     this.db.exec('pragma journal_mode = wal');
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /**
+   * Brings a database written by an earlier version up to this schema.
+   *
+   * SQLite has no `add column if not exists`, and a store that refuses to open
+   * because it predates a column is a store that loses the history it exists
+   * to keep.
+   */
+  private migrate(): void {
+    const columns = this.db
+      .prepare('select name from pragma_table_info(?)')
+      .all('traces')
+      .map((row) => String((row as { name: string }).name));
+    if (!columns.includes('thread_id')) {
+      this.db.exec('alter table traces add column thread_id text');
+      this.db.exec('create index if not exists traces_thread on traces (thread_id)');
+    }
   }
 
   // --- traces ---------------------------------------------------------------
@@ -78,13 +99,14 @@ export class MailStore {
    * and a history of re-decisions is a different feature with different
    * retention questions. What is kept is what the agent currently believes.
    */
-  recordTrace(trace: DecisionTrace): void {
+  recordTrace(trace: DecisionTrace, threadId?: string | null): void {
     this.db
       .prepare(
         `insert into traces
-           (message_id, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (message_id, thread_id, decided_by, category, confidence, rationale, used_model, started_at, duration_ms, steps)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict(message_id) do update set
+           thread_id = excluded.thread_id,
            decided_by = excluded.decided_by,
            category = excluded.category,
            confidence = excluded.confidence,
@@ -96,6 +118,7 @@ export class MailStore {
       )
       .run(
         trace.messageId,
+        threadId ?? null,
         trace.decidedBy,
         trace.category,
         trace.confidence,
@@ -141,6 +164,41 @@ export class MailStore {
       withModel,
       settledFree: classified === 0 ? null : (classified - withModel) / classified,
     };
+  }
+
+  /**
+   * What this thread was last decided to be, for node 1 (PRD section 4.2).
+   *
+   * Node 1 is the only node that can settle a message from a person cheaply,
+   * and on a mailbox where 70% of the traffic is written by people that makes
+   * it the one with the most left to give.
+   *
+   * Three conditions, and each is a refusal the node needs:
+   *
+   * - **Not `needs-review`.** Inheriting "I do not know" propagates a
+   *   non-answer down a thread and makes it look like a decision.
+   * - **At or above a floor.** A thread inherits from a decision, not from a
+   *   guess, and node 1 settles at zero cost with no second opinion.
+   * - **The most recent.** A thread that changed character — a notification
+   *   thread someone replied to — is described by its latest message.
+   */
+  threadCategory(threadId: string | null, minConfidence = 0.85): MailCategory | null {
+    if (threadId === null || threadId.length === 0) return null;
+    const row = this.db
+      .prepare(
+        `select category from traces
+         where thread_id = ? and category <> 'needs-review' and confidence >= ?
+         order by started_at desc limit 1`,
+      )
+      .get(threadId, minConfidence);
+    return row === undefined ? null : toMailCategory(String((row as { category: string }).category));
+  }
+
+  /** How many messages of a thread already have a decision. */
+  threadSize(threadId: string | null): number {
+    if (threadId === null || threadId.length === 0) return 0;
+    const row = this.db.prepare('select count(*) n from traces where thread_id = ?').get(threadId);
+    return Number((row as { n: number }).n);
   }
 
   // --- cursors --------------------------------------------------------------
