@@ -50,6 +50,10 @@ const boxes = await jmap([['Mailbox/get', { accountId: ACC, ids: null }, 'c']]);
 const inbox = boxes.list.find((m) => m.role === 'inbox');
 
 // Page the query: a mailbox is larger than any one response.
+//
+// James caps a response at 256 ids whatever `limit` says, and honours
+// `position` correctly. Stopping when a page returns fewer than asked for is
+// therefore wrong — it stops at 256 every time, on an inbox holding 32837.
 const ids = [];
 while (ids.length < LIMIT) {
   const page = await jmap([
@@ -63,7 +67,6 @@ while (ids.length < LIMIT) {
   ]);
   if (page.ids.length === 0) break;
   ids.push(...page.ids);
-  if (page.ids.length < 500) break;
 }
 
 // Headers only. A body would be a hundred times the bytes for nothing.

@@ -44,11 +44,16 @@ replying to each other**, which is what 70% of this mailbox is.
 
 ## What the number is not
 
-**Not the ceiling.** Sixteen of 200 is what a cold store reaches on a
-200-message window: every thread has to be decided once before it can be
-inherited from, so the first message of every thread pays full price. A store
-with a month of history behind it inherits from threads that started before the
-window.
+**Not the ceiling — and now measured.** Sixteen of 200 is what a cold store
+reaches on a 200-message window: every thread has to be decided once before it
+can be inherited from, so the first message of every thread pays full price.
+
+Measured afterwards over 500 inbox messages against 3000 of history: **44% of
+inbox messages belong to a thread with an earlier message** — 30% reachable
+within a window, and a further 14% only by a store that kept what has already
+been filed away. See `paging-correction.md`, which also records that every JMAP
+measurement before it ran on 256 messages rather than the 32837 the inbox
+holds.
 
 **Not additive with the pattern number.** A message settled by node 1 would
 often have been settled by node 3 too, and node 1 runs first. The 19% pattern

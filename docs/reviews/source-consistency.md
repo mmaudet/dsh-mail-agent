@@ -1,5 +1,10 @@
 # A source is not always a category
 
+> **Scale correction.** Sampled the 256 most recent messages; see
+> `paging-correction.md`. The recurrence ceiling re-measured at 70% over 3000
+> messages against the 64% stated here, so the proportion held.
+
+
 Three measurements chased the same question — why does node 3 settle 10% when
 the mailbox looks far more repetitive than that. The first blamed the window,
 the second the granularity. Both were wrong.

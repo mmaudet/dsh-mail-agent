@@ -1,5 +1,12 @@
 # The first dry run over a real mailbox
 
+> **Scale correction.** This and the other reviews written before
+> `paging-correction.md` sampled the 256 most recent messages, not the mailbox:
+> a paging bug in the probes read a capped response as an exhausted folder. The
+> inbox holds 32837. The samples are real and the proportions largely survived
+> re-measurement; the sizes stated below are the sample's, not the mailbox's.
+
+
 100 messages from the target INBOX, classified, nothing written. This is the
 Phase 2 output PRD section 6 asks for, and it answered one question and raised
 four.
