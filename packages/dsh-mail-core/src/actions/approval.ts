@@ -20,16 +20,25 @@ import type { MailCategory } from '../types.js';
 
 /** Every category, so a blanket rule cannot silently miss one. */
 const allCategories: readonly MailCategory[] = [
-  'important',
-  'standard',
-  'newsletter-tech',
-  'newsletter-promo',
-  'newsletter-notification',
-  'transactional',
-  'spam-probable',
-  'spam-certain',
+  'correspondance-commerciale-client',
+  'obligations-administratives-echeance',
+  'demande-interne',
+  'planification-reunion-rdv',
+  'incident-securite',
+  'veille-newsletter',
+  'support-technique-ticket',
+  'rapport-compte-rendu-interne',
+  'notifications-personnelles-diverses',
+  'liste-diffusion',
+  'recu-transaction',
+  'rh-interne',
+  'candidature-emploi',
+  'prospection-commerciale-non-sollicitee',
+  'spam-formulaire-contact',
+  'phishing-arnaque',
   'needs-review',
 ];
+
 
 /**
  * The things the agent can do. Ordered by how hard each is to undo, which is
@@ -94,40 +103,50 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
     // --- moving: proposed, not performed, until the traces earn it ---------
     // PRD section 4.5 files newsletters automatically, and the first dry run
     // over the real mailbox is why that is not the default here. Of twelve
-    // messages it would have moved six, and among the six:
-    //
-    //   "Mail delivery failed [Re: ...]"  -> newsletter-notification
-    //   "New demo request — ..."          -> newsletter-notification
-    //
-    // A bounce and a sales enquiry, both filed out of the inbox. And two
-    // messages of one mailing-list thread were classified differently from
-    // each other in the same run.
+    // messages it would have moved six, and among the six a bounce and a sales
+    // enquiry, both filed out of the inbox. Two messages of one mailing-list
+    // thread were classified differently from each other in the same run.
     //
     // A tag is reversible and visible; a move takes mail out of the place the
-    // owner looks. The measurements say the classifier settles ~70% of this
-    // mailbox and answers one colleague under five categories, so moving on
-    // its own is authority it has not earned yet.
+    // owner looks. The path back to `auto` is not an opinion:
+    // `MailStore.efficiency` and the stored traces make a per-category error
+    // rate measurable, and a category whose moves have been right over a
+    // review window gets promoted on that evidence.
     //
-    // The path back to `auto` is not an opinion: `MailStore.efficiency` and the
-    // stored traces make a per-category error rate measurable, and a category
-    // whose moves have been right over a review window gets promoted on that
-    // evidence.
-    { category: 'newsletter-tech', action: 'move', approval: 'ask', minConfidence: 0.8 },
-    { category: 'newsletter-promo', action: 'move', approval: 'ask', minConfidence: 0.8 },
-    { category: 'newsletter-notification', action: 'move', approval: 'ask', minConfidence: 0.8 },
-    { category: 'spam-certain', action: 'move', approval: 'ask', minConfidence: 0.9 },
-    { category: 'spam-probable', action: 'move', approval: 'ask', minConfidence: 0.85 },
-    { category: 'transactional', action: 'move', approval: 'ask', minConfidence: 0.85 },
+    // Junk is the strictest floor because it is the move whose mistake an
+    // owner is least likely to notice.
+    { category: 'phishing-arnaque', action: 'move', approval: 'ask', minConfidence: 0.9 },
+    { category: 'spam-formulaire-contact', action: 'move', approval: 'ask', minConfidence: 0.9 },
+    ...(
+      [
+        'veille-newsletter',
+        'support-technique-ticket',
+        'rapport-compte-rendu-interne',
+        'notifications-personnelles-diverses',
+        'liste-diffusion',
+        'recu-transaction',
+        'candidature-emploi',
+      ] as const
+    ).map((category): ApprovalRule => ({ category, action: 'move', approval: 'ask', minConfidence: 0.8 })),
 
-    // The three that never move on their own. `important` is the mail the
-    // owner is expected to act on, `standard` is theirs to read, and
-    // `needs-review` is by definition the cascade saying it does not know.
-    { category: 'important', action: 'move', approval: 'ask' },
-    { category: 'standard', action: 'move', approval: 'ask' },
+    // Nothing in the `acts` band moves on its own, and `rh-interne` has no
+    // destination to move to. `needs-review` is by definition the cascade
+    // saying it does not know, which is not a reason to move anything.
+    ...(
+      [
+        'correspondance-commerciale-client',
+        'obligations-administratives-echeance',
+        'demande-interne',
+        'planification-reunion-rdv',
+        'incident-securite',
+        'rh-interne',
+        'prospection-commerciale-non-sollicitee',
+      ] as const
+    ).map((category): ApprovalRule => ({ category, action: 'move', approval: 'ask' })),
     { category: 'needs-review', action: 'move', approval: 'never' },
 
     // --- trash: never automatic, whatever the category ----------------------
-    // Not in the PRD at all: the vocabulary stops at Junk. Offered as `ask`
+    // Not in the PRD at all: its vocabulary stops at Junk. Offered as `ask`
     // because an owner asked for it, and never as `auto`, because it is the
     // only action whose effect becomes irreversible by the passage of time.
     ...allCategories.map(
@@ -138,8 +157,17 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
     // A draft in Drafts is a proposal the owner reads before anything leaves.
     // `ask` for now on the same evidence as the moves: a reply drafted from a
     // misclassification is a reply to the wrong message.
-    { category: 'important', action: 'draft', approval: 'ask' },
-    { category: 'standard', action: 'draft', approval: 'ask' },
+    // The `acts` band only: a draft is a proposed answer, and the categories
+    // that ask nothing have nothing to answer. `incident-securite` is out
+    // because it is escalated to a person, not replied to.
+    ...(
+      [
+        'correspondance-commerciale-client',
+        'obligations-administratives-echeance',
+        'demande-interne',
+        'planification-reunion-rdv',
+      ] as const
+    ).map((category): ApprovalRule => ({ category, action: 'draft', approval: 'ask' })),
 
     // PRD 4.4: never sent automatically, the owner keeps 100% of the control.
     // Listed explicitly rather than left to the default, because this is the

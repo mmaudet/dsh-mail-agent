@@ -42,10 +42,10 @@ function trace(category: MailCategory, confidence = 1): DecisionTrace {
 
 describe('what a category implies', () => {
   it('tags and files a newsletter', () => {
-    const plan = planActions(trace('newsletter-tech'), JMAP_LIKE, DEFAULT_POLICY);
+    const plan = planActions(trace('veille-newsletter'), JMAP_LIKE, DEFAULT_POLICY);
 
     expect(plan.map((p) => p.action)).toStrictEqual(['keyword', 'move']);
-    expect(plan[1]?.folder).toBe('Newsletters/Tech');
+    expect(plan[1]?.folder).toBe('Veille');
     // Tagged unattended, filed only with the owner's say-so: the first dry run
     // over a real mailbox moved a bounce and a sales enquiry out of the inbox.
     expect(automatic(plan).map((p) => p.action)).toStrictEqual(['keyword']);
@@ -55,7 +55,7 @@ describe('what a category implies', () => {
   it('tags what it will not move', () => {
     // `important` is the mail the owner is expected to act on. It is marked so
     // they can find it, and left exactly where they left it.
-    const plan = planActions(trace('important'), JMAP_LIKE, DEFAULT_POLICY);
+    const plan = planActions(trace('demande-interne'), JMAP_LIKE, DEFAULT_POLICY);
 
     expect(plan.map((p) => p.action)).toStrictEqual(['keyword']);
     expect(automatic(plan).map((p) => p.action)).toStrictEqual(['keyword']);
@@ -71,7 +71,7 @@ describe('what the owner is asked about', () => {
   it('proposes rather than performs a junking it is unsure of', () => {
     // 0.86 is above node 7's threshold and below the floor junking carries,
     // and the difference between those two numbers is this test.
-    const plan = planActions(trace('spam-certain', 0.86), JMAP_LIKE, DEFAULT_POLICY);
+    const plan = planActions(trace('phishing-arnaque', 0.86), JMAP_LIKE, DEFAULT_POLICY);
     const move = plan.find((p) => p.action === 'move');
 
     expect(move?.approval).toBe('ask');
@@ -82,7 +82,7 @@ describe('what the owner is asked about', () => {
   it('proposes the same junking even when it is sure', () => {
     // The floor is not what holds it back any more: no move runs unattended
     // until a category's own traces earn it.
-    const plan = planActions(trace('spam-certain', 0.95), JMAP_LIKE, DEFAULT_POLICY);
+    const plan = planActions(trace('phishing-arnaque', 0.95), JMAP_LIKE, DEFAULT_POLICY);
     expect(automatic(plan).map((p) => p.action)).toStrictEqual(['keyword']);
     expect(proposed(plan).map((p) => p.action)).toStrictEqual(['move']);
   });
@@ -91,7 +91,7 @@ describe('what the owner is asked about', () => {
     // A plan the owner cannot see is a plan they cannot refuse. `never` rows
     // are the ones worth reading.
     const refuse = { rules: [] };
-    const plan = planActions(trace('newsletter-promo'), JMAP_LIKE, refuse);
+    const plan = planActions(trace('veille-newsletter'), JMAP_LIKE, refuse);
 
     expect(plan).toHaveLength(2);
     expect(plan.every((p) => p.approval === 'never')).toBe(true);
@@ -103,24 +103,27 @@ describe('a server without custom keywords', () => {
   it('carries the category in flags instead of a tag', () => {
     // PRD 4.5: the fallback is not a lesser version, it is how the category is
     // expressed where a keyword cannot be stored.
-    const plan = planActions(trace('important'), IMAP_LIKE, DEFAULT_POLICY);
+    const plan = planActions(trace('demande-interne'), IMAP_LIKE, DEFAULT_POLICY);
     const tag = plan.find((p) => p.action === 'keyword');
 
     expect(tag?.keywords).toStrictEqual(['\\Flagged']);
     expect(tag?.because).toContain('no custom keywords');
   });
 
-  it('plans no archive destination where the server has none', () => {
-    // Gmail reports `\All` and no `\Archive`, so transactional mail has
-    // nowhere of that kind to go.
-    const plan = planActions(trace('transactional'), IMAP_LIKE, DEFAULT_POLICY);
-    expect(plan.some((p) => p.action === 'move')).toBe(false);
+  it('plans the same destination whatever the server can store', () => {
+    // The fallback table is now the only place a destination is written, so a
+    // server that cannot tag still files to the same folder — the difference
+    // between JMAP and IMAP is what marks the message, not where it lands.
+    const degraded = planActions(trace('recu-transaction'), IMAP_LIKE, DEFAULT_POLICY);
+    const rich = planActions(trace('recu-transaction'), JMAP_LIKE, DEFAULT_POLICY);
+    expect(degraded.find((p) => p.action === 'move')?.folder).toBe('Archives/Comptabilite');
+    expect(rich.find((p) => p.action === 'move')?.folder).toBe('Archives/Comptabilite');
   });
 });
 
 describe('a plan can be read before it is run', () => {
   it('says what would happen without quoting the message', () => {
-    const described = describePlan(planActions(trace('spam-probable'), JMAP_LIKE, DEFAULT_POLICY));
+    const described = describePlan(planActions(trace('phishing-arnaque'), JMAP_LIKE, DEFAULT_POLICY));
 
     expect(described).toContain('move -> Junk');
     expect(described).toContain('auto');

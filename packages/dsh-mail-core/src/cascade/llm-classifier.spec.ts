@@ -57,7 +57,7 @@ function llmAnswering(text: string): LlmStreamer & { readonly asked: GenerateOpt
 
 describe('what is sent', () => {
   it('asks on the economy route, deterministically', async () => {
-    const llm = llmAnswering('{"category":"standard","confidence":0.9,"rationale":"r"}');
+    const llm = llmAnswering('{"category":"rapport-compte-rendu-interne","confidence":0.9,"rationale":"r"}');
     await createLlmClassifier({ llm, provider: 'mail-llm-economy', model: 'm' }).classify(
       MESSAGE,
       CONTEXT,
@@ -93,13 +93,13 @@ describe('what is sent', () => {
 describe('what is accepted back', () => {
   it('reads a well-formed answer', () => {
     expect(
-      parseVerdict('{"category":"newsletter-tech","confidence":0.82,"rationale":"bulk sender"}'),
-    ).toStrictEqual({ category: 'newsletter-tech', confidence: 0.82, rationale: 'bulk sender' });
+      parseVerdict('{"category":"veille-newsletter","confidence":0.82,"rationale":"bulk sender"}'),
+    ).toStrictEqual({ category: 'veille-newsletter', confidence: 0.82, rationale: 'bulk sender' });
   });
 
   it('finds the object a model wrapped in prose or a fence', () => {
-    const wrapped = 'Sure!\n```json\n{"category":"standard","confidence":0.5,"rationale":"r"}\n```';
-    expect(parseVerdict(wrapped).category).toBe('standard');
+    const wrapped = 'Sure!\n```json\n{"category":"rapport-compte-rendu-interne","confidence":0.5,"rationale":"r"}\n```';
+    expect(parseVerdict(wrapped).category).toBe('rapport-compte-rendu-interne');
   });
 
   it('rejects a category outside the vocabulary', () => {
@@ -117,8 +117,8 @@ describe('what is accepted back', () => {
   });
 
   it('rejects a missing or non-numeric confidence', () => {
-    expect(() => parseVerdict('{"category":"standard"}')).toThrow(/numeric confidence/);
-    expect(() => parseVerdict('{"category":"standard","confidence":"high"}')).toThrow(
+    expect(() => parseVerdict('{"category":"rapport-compte-rendu-interne"}')).toThrow(/numeric confidence/);
+    expect(() => parseVerdict('{"category":"rapport-compte-rendu-interne","confidence":"high"}')).toThrow(
       /numeric confidence/,
     );
   });
@@ -131,20 +131,20 @@ describe('what is accepted back', () => {
   });
 
   it('clamps a confidence the model put outside the range', () => {
-    expect(parseVerdict('{"category":"standard","confidence":4}').confidence).toBe(1);
-    expect(parseVerdict('{"category":"standard","confidence":-2}').confidence).toBe(0);
+    expect(parseVerdict('{"category":"rapport-compte-rendu-interne","confidence":4}').confidence).toBe(1);
+    expect(parseVerdict('{"category":"rapport-compte-rendu-interne","confidence":-2}').confidence).toBe(0);
   });
 
   it('bounds the rationale, which is exported', () => {
     const long = 'y'.repeat(500);
-    expect(parseVerdict(`{"category":"standard","confidence":1,"rationale":"${long}"}`).rationale
+    expect(parseVerdict(`{"category":"rapport-compte-rendu-interne","confidence":1,"rationale":"${long}"}`).rationale
       .length).toBeLessThanOrEqual(160);
   });
 });
 
 describe('assembling the stream', () => {
   it('reassembles text deltas and ignores everything else', async () => {
-    const llm = llmAnswering('{"category":"important","confidence":0.95,"rationale":"asks a question"}');
+    const llm = llmAnswering('{"category":"demande-interne","confidence":0.95,"rationale":"asks a question"}');
     const verdict = await createLlmClassifier({ llm, provider: 'p', model: 'm' }).classify(
       MESSAGE,
       CONTEXT,
@@ -153,7 +153,7 @@ describe('assembling the stream', () => {
     // Reasoning deltas are not the answer, and a parser that swallowed them
     // would read a model's thinking as its verdict.
     expect(verdict).toStrictEqual({
-      category: 'important',
+      category: 'demande-interne',
       confidence: 0.95,
       rationale: 'asks a question',
     });

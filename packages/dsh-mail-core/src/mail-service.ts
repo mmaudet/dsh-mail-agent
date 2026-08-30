@@ -77,19 +77,59 @@ export interface KeywordFallback {
 }
 
 const FALLBACKS: Readonly<Record<MailCategory, KeywordFallback>> = {
-  important: { flags: ['\\Flagged'], folder: null },
-  standard: { flags: [], folder: null },
-  'newsletter-tech': { flags: [], folder: 'Newsletters/Tech' },
-  'newsletter-promo': { flags: [], folder: 'Newsletters/Promo' },
-  'newsletter-notification': { flags: [], folder: 'Newsletters/Notifications' },
-  transactional: { flags: [], folder: null },
-  'spam-probable': { flags: [], folder: 'Junk' },
-  'spam-certain': { flags: [], folder: 'Junk' },
+  // Nothing in the `acts` band moves. Mail the owner has to answer belongs
+  // where they will see it, and a flag is the strongest thing a server without
+  // custom keywords can say in place.
+  'correspondance-commerciale-client': { flags: ['\\Flagged'], folder: null },
+  'obligations-administratives-echeance': { flags: ['\\Flagged'], folder: null },
+  'demande-interne': { flags: ['\\Flagged'], folder: null },
+  'planification-reunion-rdv': { flags: ['\\Flagged'], folder: null },
+  'incident-securite': { flags: ['\\Flagged'], folder: null },
+
+  // The `reads` band files, because filing is what a thing worth reading later
+  // and not now is for. `rh-interne` is the exception: it stays in the inbox
+  // because it concerns a named person and is usually short-lived.
+  'veille-newsletter': { flags: [], folder: 'Veille' },
+  'support-technique-ticket': { flags: [], folder: 'Support' },
+  'rapport-compte-rendu-interne': { flags: [], folder: 'Archives/Interne' },
+  'notifications-personnelles-diverses': { flags: [], folder: 'Archives/Notifications' },
+  'liste-diffusion': { flags: [], folder: 'Listes' },
+  'recu-transaction': { flags: [], folder: 'Archives/Comptabilite' },
+  'rh-interne': { flags: [], folder: null },
+  'candidature-emploi': { flags: [], folder: 'Recrutement' },
+
+  // The `drops` band leaves. Cold prospecting has no folder here because it
+  // does not move: it is trashed, which is its own action with its own
+  // reversal window, and naming `Trash` as a destination would hide a deletion
+  // inside a filing rule.
+  'prospection-commerciale-non-sollicitee': { flags: [], folder: null },
+  'spam-formulaire-contact': { flags: [], folder: 'Junk' },
+  'phishing-arnaque': { flags: [], folder: 'Junk' },
+
   // On JMAP a keyword marks this and the message stays in the inbox, as
   // section 4.2 specifies. A server without custom keywords has no way to
-  // mark anything in place, so the folder *is* the mark here.
+  // mark anything in place, so the folder *is* the mark here — which is why
+  // `destinationFor` excludes it. This table answers "how does a server that
+  // cannot tag record the category"; that one answers "where does this mail
+  // belong". They agree for fifteen categories and differ for this one, and
+  // collapsing them loses exactly that.
   'needs-review': { flags: [], folder: 'NeedsReview' },
 };
+
+/**
+ * Where a category's mail belongs, on any server, or `null` when it stays put.
+ *
+ * Kept beside the fallback table rather than in the planner: the two used to
+ * live in different files and could disagree about a destination, which is one
+ * table too many for one question. Here the disagreement is visible and
+ * deliberate.
+ */
+export function destinationFor(category: MailCategory): string | null {
+  // The cascade saying it does not know is not a reason to move anything. On a
+  // server that can tag, the message stays in the inbox wearing its keyword.
+  if (category === 'needs-review') return null;
+  return FALLBACKS[category].folder;
+}
 
 /** The fallback for a category, for adapters and consumers that need to plan. */
 export function keywordFallback(category: MailCategory): KeywordFallback {

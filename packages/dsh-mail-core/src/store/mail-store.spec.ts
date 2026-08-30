@@ -19,14 +19,14 @@ function trace(overrides: Partial<DecisionTrace> = {}): DecisionTrace {
   return {
     messageId: 'm1',
     decidedBy: 'static-rule',
-    category: 'newsletter-tech',
+    category: 'veille-newsletter',
     confidence: 1,
     rationale: 'bulk sender',
     steps: [
       { node: 'thread-continuity', verdict: null, durationMs: 0 },
       {
         node: 'static-rule',
-        verdict: { category: 'newsletter-tech', confidence: 1, rationale: 'bulk sender' },
+        verdict: { category: 'veille-newsletter', confidence: 1, rationale: 'bulk sender' },
         durationMs: 1,
       },
     ],
@@ -55,10 +55,10 @@ describe('traces', () => {
     // of re-decisions is a different feature with different retention
     // questions.
     const db = store();
-    db.recordTrace(trace({ category: 'newsletter-tech' }));
-    db.recordTrace(trace({ category: 'spam-certain', decidedBy: 'spam-prefilter' }));
+    db.recordTrace(trace({ category: 'veille-newsletter' }));
+    db.recordTrace(trace({ category: 'phishing-arnaque', decidedBy: 'spam-prefilter' }));
 
-    expect(db.traceFor('m1')?.category).toBe('spam-certain');
+    expect(db.traceFor('m1')?.category).toBe('phishing-arnaque');
     expect(db.recentTraces()).toHaveLength(1);
     db.close();
   });
@@ -135,8 +135,8 @@ describe('cursors', () => {
 
 describe('learned patterns', () => {
   const patterns: LearnedPattern[] = [
-    { listId: 'l.example', sender: null, subjectContains: null, category: 'standard', confidence: 0.9 },
-    { listId: null, sender: 'a@example.org', subjectContains: null, category: 'important', confidence: 0.88 },
+    { listId: 'l.example', sender: null, subjectContains: null, category: 'rapport-compte-rendu-interne', confidence: 0.9 },
+    { listId: null, sender: 'a@example.org', subjectContains: null, category: 'demande-interne', confidence: 0.88 },
   ];
 
   it('round-trips a set', () => {
@@ -145,7 +145,7 @@ describe('learned patterns', () => {
 
     const read = db.loadPatterns();
     expect(read).toHaveLength(2);
-    expect(read.find((p) => p.listId === 'l.example')?.category).toBe('standard');
+    expect(read.find((p) => p.listId === 'l.example')?.category).toBe('rapport-compte-rendu-interne');
     expect(read.find((p) => p.sender === 'a@example.org')?.confidence).toBeCloseTo(0.88);
     db.close();
   });
@@ -184,18 +184,18 @@ describe('what a thread was decided to be', () => {
     db.recordTrace(
       trace({
         messageId: 'a',
-        category: 'newsletter-notification',
+        category: 'support-technique-ticket',
         startedAt: new Date('2026-08-01T00:00:00.000Z'),
       }),
       't1',
       true,
     );
     db.recordTrace(
-      trace({ messageId: 'b', category: 'important', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
+      trace({ messageId: 'b', category: 'demande-interne', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
       't1',
     );
 
-    expect(db.threadCategory('t1')).toBe('important');
+    expect(db.threadCategory('t1')).toBe('demande-interne');
     expect(db.threadSize('t1')).toBe(2);
     db.close();
   });
@@ -213,9 +213,9 @@ describe('what a thread was decided to be', () => {
     // Node 1 settles at zero cost with no second opinion, so it inherits from
     // a decision rather than from a low-confidence one.
     const db = store();
-    db.recordTrace(trace({ messageId: 'a', category: 'important', confidence: 0.6 }), 't1', true);
+    db.recordTrace(trace({ messageId: 'a', category: 'demande-interne', confidence: 0.6 }), 't1', true);
     expect(db.threadCategory('t1')).toBeNull();
-    expect(db.threadCategory('t1', 0.5)).toBe('important');
+    expect(db.threadCategory('t1', 0.5)).toBe('demande-interne');
     db.close();
   });
 
@@ -230,11 +230,11 @@ describe('what a thread was decided to be', () => {
 
   it('keeps the thread when a message is re-decided', () => {
     const db = store();
-    db.recordTrace(trace({ messageId: 'a', category: 'standard' }), 't1', true);
-    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1', true);
+    db.recordTrace(trace({ messageId: 'a', category: 'rapport-compte-rendu-interne' }), 't1', true);
+    db.recordTrace(trace({ messageId: 'a', category: 'demande-interne' }), 't1', true);
 
     expect(db.threadSize('t1')).toBe(1);
-    expect(db.threadCategory('t1')).toBe('important');
+    expect(db.threadCategory('t1')).toBe('demande-interne');
     db.close();
   });
 });
@@ -246,19 +246,19 @@ describe('node 1 waits for the owner', () => {
     // every thread the classifier has touched amplifies whatever it leans
     // towards. 61% of a mailbox came back `important`.
     const db = store();
-    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1');
+    db.recordTrace(trace({ messageId: 'a', category: 'demande-interne' }), 't1');
     expect(db.threadCategory('t1')).toBeNull();
     db.close();
   });
 
   it('inherits once the owner has replied anywhere in it', () => {
     const db = store();
-    db.recordTrace(trace({ messageId: 'a', category: 'important' }), 't1');
+    db.recordTrace(trace({ messageId: 'a', category: 'demande-interne' }), 't1');
     expect(db.threadCategory('t1')).toBeNull();
 
     // A later message in the same thread carries the owner's reply.
-    db.recordTrace(trace({ messageId: 'b', category: 'important' }), 't1', true);
-    expect(db.threadCategory('t1')).toBe('important');
+    db.recordTrace(trace({ messageId: 'b', category: 'demande-interne' }), 't1', true);
+    expect(db.threadCategory('t1')).toBe('demande-interne');
     db.close();
   });
 
@@ -267,17 +267,17 @@ describe('node 1 waits for the owner', () => {
     // answer. They are different messages more often than not.
     const db = store();
     db.recordTrace(
-      trace({ messageId: 'a', category: 'standard', startedAt: new Date('2026-08-01T00:00:00.000Z') }),
+      trace({ messageId: 'a', category: 'rapport-compte-rendu-interne', startedAt: new Date('2026-08-01T00:00:00.000Z') }),
       't1',
       true,
     );
     db.recordTrace(
-      trace({ messageId: 'b', category: 'important', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
+      trace({ messageId: 'b', category: 'demande-interne', startedAt: new Date('2026-08-30T00:00:00.000Z') }),
       't1',
       false,
     );
 
-    expect(db.threadCategory('t1')).toBe('important');
+    expect(db.threadCategory('t1')).toBe('demande-interne');
     db.close();
   });
 });

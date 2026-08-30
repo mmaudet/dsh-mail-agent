@@ -12,34 +12,111 @@
 // ---------------------------------------------------------------------------
 
 /**
- * The categories the cascade can assign to a message (PRD section 4.2).
+ * The categories the cascade can assign to a message.
+ *
+ * PRD section 4.2 specifies eight, chosen before anyone had looked at a real
+ * mailbox. These sixteen were derived from one: 400 messages described in free
+ * words with no vocabulary imposed, grouped under a single rule — a category
+ * exists only where the agent does something different with it — and then
+ * measured by reclassifying the same 400, which put coverage at 97%.
+ * `scripts/benchmark-taxonomy.mjs` reproduces all three passes, and
+ * docs/reviews/sixteen-categories.md records what it found.
+ *
+ * Two of the sixteen came from reading the eleven messages nothing covered:
+ * `recu-transaction`, which records money that has already moved, and
+ * `demande-interne`, where a colleague asks the owner to decide. The second is
+ * the one the owner cares most about, and the first fourteen had missed it.
+ *
+ * Eight distinctions were considered and rejected, among them the PRD's split
+ * between a technical and a promotional newsletter: both are read once and
+ * forgotten, so they are one category badly named.
  *
  * `needs-review` is not a classification the cascade is confident about: it is
  * what a below-threshold decision degrades to, and what a suspected spam
- * false-positive is re-routed to.
+ * false-positive is re-routed to. It survives because it is an operational
+ * state rather than a kind of mail.
  */
 export type MailCategory =
-  | 'important'
-  | 'standard'
-  | 'newsletter-tech'
-  | 'newsletter-promo'
-  | 'newsletter-notification'
-  | 'transactional'
-  | 'spam-probable'
-  | 'spam-certain'
+  // Something only the owner can do, and it is not done. 35% of the mailbox.
+  | 'correspondance-commerciale-client'
+  | 'obligations-administratives-echeance'
+  | 'demande-interne'
+  | 'planification-reunion-rdv'
+  | 'incident-securite'
+  // Worth reading, asks nothing. 34%.
+  | 'veille-newsletter'
+  | 'support-technique-ticket'
+  | 'rapport-compte-rendu-interne'
+  | 'notifications-personnelles-diverses'
+  | 'liste-diffusion'
+  | 'recu-transaction'
+  | 'rh-interne'
+  | 'candidature-emploi'
+  // Nothing to read and nothing to keep. 30%, and the largest single category
+  // in the mailbox is in here.
+  | 'prospection-commerciale-non-sollicitee'
+  | 'spam-formulaire-contact'
+  | 'phishing-arnaque'
+  // Not a kind of mail.
   | 'needs-review';
 
 const MAIL_CATEGORIES = [
-  'important',
-  'standard',
-  'newsletter-tech',
-  'newsletter-promo',
-  'newsletter-notification',
-  'transactional',
-  'spam-probable',
-  'spam-certain',
+  'correspondance-commerciale-client',
+  'obligations-administratives-echeance',
+  'demande-interne',
+  'planification-reunion-rdv',
+  'incident-securite',
+  'veille-newsletter',
+  'support-technique-ticket',
+  'rapport-compte-rendu-interne',
+  'notifications-personnelles-diverses',
+  'liste-diffusion',
+  'recu-transaction',
+  'rh-interne',
+  'candidature-emploi',
+  'prospection-commerciale-non-sollicitee',
+  'spam-formulaire-contact',
+  'phishing-arnaque',
   'needs-review',
 ] as const satisfies readonly MailCategory[];
+
+/**
+ * How a category is handled, which is the axis the vocabulary was built on.
+ *
+ * A category earned its place by doing something different from its
+ * neighbours; the band says which of the three things that difference is a
+ * variation of. Consumers that only need the coarse decision — a digest, a
+ * summary line, an approval default — read this rather than enumerating
+ * sixteen names.
+ */
+export type CategoryBand = 'acts' | 'reads' | 'drops';
+
+const BANDS: Readonly<Record<MailCategory, CategoryBand>> = {
+  'correspondance-commerciale-client': 'acts',
+  'obligations-administratives-echeance': 'acts',
+  'demande-interne': 'acts',
+  'planification-reunion-rdv': 'acts',
+  'incident-securite': 'acts',
+  'veille-newsletter': 'reads',
+  'support-technique-ticket': 'reads',
+  'rapport-compte-rendu-interne': 'reads',
+  'notifications-personnelles-diverses': 'reads',
+  'liste-diffusion': 'reads',
+  'recu-transaction': 'reads',
+  'rh-interne': 'reads',
+  'candidature-emploi': 'reads',
+  'prospection-commerciale-non-sollicitee': 'drops',
+  'spam-formulaire-contact': 'drops',
+  'phishing-arnaque': 'drops',
+  // The cascade saying it does not know is not a reason to act on a message,
+  // and not a reason to drop one either.
+  'needs-review': 'reads',
+};
+
+/** Which of the three things the agent does with this category. */
+export function bandOf(category: MailCategory): CategoryBand {
+  return BANDS[category];
+}
 
 /** Narrow an untrusted string to a category, or `null` when it is not one. */
 export function toMailCategory(raw: string): MailCategory | null {

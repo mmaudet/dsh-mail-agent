@@ -11,8 +11,8 @@ import {
 
 describe('toMailCategory', () => {
   it('accepts every category the cascade can assign', () => {
-    expect(toMailCategory('important')).toBe('important');
-    expect(toMailCategory('newsletter-promo')).toBe('newsletter-promo');
+    expect(toMailCategory('demande-interne')).toBe('demande-interne');
+    expect(toMailCategory('veille-newsletter')).toBe('veille-newsletter');
     expect(toMailCategory('needs-review')).toBe('needs-review');
   });
 
@@ -25,8 +25,8 @@ describe('toMailCategory', () => {
 
 describe('sentinelKeyword', () => {
   it('carries the category in the keyword name', () => {
-    expect(sentinelKeyword('important')).toBe('$twaky-important');
-    expect(sentinelKeyword('spam-certain')).toBe('$twaky-spam-certain');
+    expect(sentinelKeyword('demande-interne')).toBe('$twaky-demande-interne');
+    expect(sentinelKeyword('phishing-arnaque')).toBe('$twaky-phishing-arnaque');
   });
 });
 
@@ -36,7 +36,7 @@ describe('knownKeywords', () => {
   });
 
   it('recovers Sentinel tags', () => {
-    expect(knownKeywords(['$twaky-newsletter-tech'])).toStrictEqual(['$twaky-newsletter-tech']);
+    expect(knownKeywords(['$twaky-veille-newsletter'])).toStrictEqual(['$twaky-veille-newsletter']);
   });
 
   it('drops keywords another client may have set', () => {
@@ -44,9 +44,9 @@ describe('knownKeywords', () => {
   });
 
   it('keeps the known ones out of a mixed list', () => {
-    expect(knownKeywords(['$seen', 'someone-elses-tag', '$twaky-important'])).toStrictEqual([
+    expect(knownKeywords(['$seen', 'someone-elses-tag', '$twaky-demande-interne'])).toStrictEqual([
       '$seen',
-      '$twaky-important',
+      '$twaky-demande-interne',
     ]);
   });
 });

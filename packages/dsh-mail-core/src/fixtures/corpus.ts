@@ -71,9 +71,9 @@ export const CORPUS: readonly CorpusCase[] = [
       subject: 'Point budget avant vendredi',
       bodyText: 'Peux-tu confirmer les chiffres avant la réunion de vendredi ?',
     }),
-    expected: 'important',
+    expected: 'demande-interne',
     decidedBy: 'static-rule',
-    because: 'sender is on the VIP list; a direct question expects an answer',
+    because: 'sender is a colleague on the VIP list, asking the owner to confirm',
   },
   {
     message: message({
@@ -83,9 +83,9 @@ export const CORPUS: readonly CorpusCase[] = [
       listUnsubscribe: ['https://techdigest.example/u/42', 'mailto:u@techdigest.example'],
       bodyText: 'Cette semaine: dix articles sur les bases de données.',
     }),
-    expected: 'newsletter-tech',
-    decidedBy: 'static-rule',
-    because: 'List-Unsubscribe plus a known bulk sender; no model call needed',
+    expected: 'veille-newsletter',
+    decidedBy: 'llm',
+    because: 'List-Unsubscribe proves it is bulk and stops there; only the model can tell subscribed editorial from cold sales',
   },
   {
     message: message({
@@ -95,9 +95,9 @@ export const CORPUS: readonly CorpusCase[] = [
       listUnsubscribe: ['https://shop.example/unsub'],
       bodyText: 'Profitez de nos soldes exceptionnelles.',
     }),
-    expected: 'newsletter-promo',
-    decidedBy: 'static-rule',
-    because: 'commercial bulk with an unsubscribe header',
+    expected: 'veille-newsletter',
+    decidedBy: 'llm',
+    because: 'bulk the owner subscribed to; the tech/promo split was measured to change nothing and was dropped',
   },
   {
     message: message({
@@ -107,9 +107,9 @@ export const CORPUS: readonly CorpusCase[] = [
       listUnsubscribe: ['https://github.example/settings/notifications'],
       bodyText: 'Your pull request was merged.',
     }),
-    expected: 'newsletter-notification',
-    decidedBy: 'static-rule',
-    because: 'machine notification from a known platform',
+    expected: 'support-technique-ticket',
+    decidedBy: 'llm',
+    because: 'a platform reporting the lifecycle of something the owner opened',
   },
 
   // --- spam prefilter: decided on headers, before any other logic -----------
@@ -121,7 +121,7 @@ export const CORPUS: readonly CorpusCase[] = [
       spamHeaders: { 'x-spam-score': '14.8', 'x-spam-status': 'Yes' },
       bodyText: 'Cliquez pour reclamer votre prix.',
     }),
-    expected: 'spam-certain',
+    expected: 'phishing-arnaque',
     decidedBy: 'spam-prefilter',
     because: 'rspamd score well past the junk threshold',
   },
@@ -133,7 +133,7 @@ export const CORPUS: readonly CorpusCase[] = [
       spamHeaders: { 'x-spam-score': '5.2', 'x-spam-status': 'No' },
       bodyText: 'Merci de vérifier vos informations.',
     }),
-    expected: 'spam-probable',
+    expected: 'phishing-arnaque',
     decidedBy: 'llm',
     because: 'grey zone: the prefilter defers and the model decides',
   },
@@ -151,12 +151,12 @@ export const CORPUS: readonly CorpusCase[] = [
       },
       bodyText: 'Connectez-vous pour rétablir votre accès.',
     }),
-    // `spam-probable`, not `spam-certain`: node 5 reasons from a name/domain
-    // mismatch, and a generic display name on a badly configured relay looks
-    // the same as an impersonation. Junk either way, but a probable one is
-    // listed in the weekly digest, so the mistake is visible and reversible
-    // (PRD section 4.5).
-    expected: 'spam-probable',
+    // Node 5 answers 0.8, below the 0.9 the policy needs to file into Junk:
+    // it reasons from a name/domain mismatch, and a generic display name on a
+    // badly configured relay looks the same as an impersonation. The category
+    // is the same as node 2's; only the confidence separates a filter's
+    // reading from this node's inference.
+    expected: 'phishing-arnaque',
     decidedBy: 'brand-spoofing',
     because: 'display name impersonates a brand while DMARC and DKIM fail',
   },
@@ -172,7 +172,7 @@ export const CORPUS: readonly CorpusCase[] = [
       subject: 'Re: Point budget avant vendredi',
       bodyText: 'Merci, et peux-tu ajouter la ligne marketing ?',
     }),
-    expected: 'important',
+    expected: 'demande-interne',
     decidedBy: 'thread-continuity',
     because: 'a reply in a thread already classified; node 1 decides at zero cost',
   },
@@ -185,7 +185,7 @@ export const CORPUS: readonly CorpusCase[] = [
       subject: 'Votre code de connexion : 481920',
       bodyText: 'Ce code expire dans 5 minutes.',
     }),
-    expected: 'transactional',
+    expected: 'recu-transaction',
     decidedBy: 'static-rule',
     because: 'one-time code; time-critical and worthless a day later',
   },
@@ -197,9 +197,9 @@ export const CORPUS: readonly CorpusCase[] = [
       hasAttachments: true,
       bodyText: 'Votre commande a été expédiée.',
     }),
-    expected: 'transactional',
+    expected: 'recu-transaction',
     decidedBy: 'static-rule',
-    because: 'receipt: a record to keep, never a digest item',
+    because: 'receipt: money that has already moved, a record to keep',
   },
 
   // --- the model earns its call --------------------------------------------
@@ -212,18 +212,18 @@ export const CORPUS: readonly CorpusCase[] = [
         'Bonjour, je reviens vers vous concernant la proposition évoquée '
         + 'la semaine dernière. Pouvons-nous caler un créneau ?',
     }),
-    expected: 'important',
+    expected: 'correspondance-commerciale-client',
     decidedBy: 'llm',
-    because: 'unknown human sender asking for a meeting; no rule covers it',
+    because: 'a partner following up on a proposal; the slot is incidental to the offer',
   },
   {
     message: message({
       id: 'c12',
-      from: [{ name: 'Association', email: 'contact@asso.example' }],
+      from: [{ name: 'Claire Fontaine', email: 'claire.fontaine@corp.example.com' }],
       subject: 'Compte rendu de la réunion du 12',
       bodyText: 'Vous trouverez ci-dessous le compte rendu. Aucune action requise.',
     }),
-    expected: 'standard',
+    expected: 'rapport-compte-rendu-interne',
     decidedBy: 'llm',
     because: 'informational, explicitly no action; the model must not inflate it',
   },
@@ -241,6 +241,38 @@ export const CORPUS: readonly CorpusCase[] = [
     because: 'too little signal to classify; must degrade rather than guess',
   },
 
+  // --- mailing lists: the one bulk header that names what it is bulk from --
+  {
+    message: message({
+      id: 'c15',
+      from: [{ name: 'Alex Fournier', email: 'alex@members.example' }],
+      subject: 'Re: proposal for the next revision',
+      listId: 'discuss.lists.example',
+      listUnsubscribe: ['https://lists.example/u'],
+      bodyText: 'I would rather we kept the current wording.',
+    }),
+    expected: 'liste-diffusion',
+    decidedBy: 'static-rule',
+    because: 'List-Id (RFC 2919) names the list; a list is a list whatever it carries',
+  },
+  {
+    message: message({
+      id: 'c16',
+      from: [{ name: 'Growth Team', email: 'hello@seo-agency.example' }],
+      subject: 'Boostez votre visibilité dès ce mois-ci',
+      listUnsubscribe: ['https://seo-agency.example/u'],
+      bodyText:
+        'Nous accompagnons des entreprises comme la vôtre pour tripler leur '
+        + 'trafic organique. Un créneau de 15 minutes cette semaine ?',
+    }),
+    expected: 'prospection-commerciale-non-sollicitee',
+    decidedBy: 'llm',
+    because:
+      'an unsubscribe link is on subscribed newsletters too; only reading it tells '
+      + 'a cold pitch from content the owner asked for, and the two are handled in '
+      + 'opposite directions',
+  },
+
   // --- learned patterns: node 3, which runs before the static rules --------
   {
     message: message({
@@ -249,7 +281,7 @@ export const CORPUS: readonly CorpusCase[] = [
       subject: 'Revue hebdo des publications',
       bodyText: 'Les publications de la semaine, sans action attendue.',
     }),
-    expected: 'newsletter-tech',
+    expected: 'veille-newsletter',
     decidedBy: 'learned-pattern',
     because: 'a recurring sender the owner has always filed here, with no unsubscribe header for a static rule to key on',
   },
@@ -267,7 +299,7 @@ export const CORPUS_LEARNED_PATTERNS = [
   {
     sender: 'veille@partenaire.example',
     subjectContains: null,
-    category: 'newsletter-tech',
+    category: 'veille-newsletter',
     confidence: 0.9,
   },
 ] as const;

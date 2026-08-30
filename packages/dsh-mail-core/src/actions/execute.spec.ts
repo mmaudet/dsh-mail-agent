@@ -82,7 +82,7 @@ describe('dry run is the default', () => {
   it('touches nothing unless told to', async () => {
     const mailbox = new RecordingMailbox();
     const store = new MailStore(':memory:');
-    const t = trace('newsletter-tech');
+    const t = trace('veille-newsletter');
 
     const result = await executePlan(t, planActions(t, JMAP_LIKE, DEFAULT_POLICY), mailbox, store);
 
@@ -97,14 +97,14 @@ describe('dry run is the default', () => {
   it('writes to the mailbox only when asked', async () => {
     const mailbox = new RecordingMailbox();
     const store = new MailStore(':memory:');
-    const t = trace('newsletter-tech');
+    const t = trace('veille-newsletter');
 
     await executePlan(t, planActions(t, JMAP_LIKE, DEFAULT_POLICY), mailbox, store, {
       dryRun: false,
     });
 
     // Only the tag: no move runs unattended under the shipped policy.
-    expect(mailbox.calls).toStrictEqual(['keywords:m1:$twaky-newsletter-tech']);
+    expect(mailbox.calls).toStrictEqual(['keywords:m1:$twaky-veille-newsletter']);
     store.close();
   });
 });
@@ -113,10 +113,10 @@ describe('the record comes before the write', () => {
   it('stores the trace even in a dry run', async () => {
     // A plan considered and not applied is still a decision worth a record.
     const store = new MailStore(':memory:');
-    const t = trace('important');
+    const t = trace('demande-interne');
     await executePlan(t, planActions(t, JMAP_LIKE, DEFAULT_POLICY), new RecordingMailbox(), store);
 
-    expect(store.traceFor('m1')?.category).toBe('important');
+    expect(store.traceFor('m1')?.category).toBe('demande-interne');
     store.close();
   });
 
@@ -124,7 +124,7 @@ describe('the record comes before the write', () => {
     // A write that succeeds while its explanation is lost is worse than one
     // that fails.
     const store = new MailStore(':memory:');
-    const t = trace('newsletter-tech');
+    const t = trace('veille-newsletter');
     const result = await executePlan(
       t,
       planActions(t, JMAP_LIKE, DEFAULT_POLICY),
@@ -145,7 +145,7 @@ describe('ordering', () => {
     // stops resolving the moment the message leaves.
     const mailbox = new RecordingMailbox();
     const store = new MailStore(':memory:');
-    const t = trace('spam-certain');
+    const t = trace('phishing-arnaque');
     const plan = planActions(t, JMAP_LIKE, DEFAULT_POLICY);
 
     // Handed in the wrong order on purpose: execution must not depend on the
@@ -165,7 +165,7 @@ describe('one failure is one message', () => {
   it('reports the failure and keeps the rest', async () => {
     const mailbox = new RecordingMailbox('move');
     const store = new MailStore(':memory:');
-    const t = trace('newsletter-tech');
+    const t = trace('veille-newsletter');
     const plan = planActions(t, JMAP_LIKE, DEFAULT_POLICY).map((p) => ({
       ...p,
       approval: 'auto' as const,
@@ -184,13 +184,13 @@ describe('the policy is the boundary', () => {
   it('performs nothing the policy did not mark automatic', async () => {
     const mailbox = new RecordingMailbox();
     const store = new MailStore(':memory:');
-    const t = trace('spam-certain', 0.86); // below the junking floor
+    const t = trace('phishing-arnaque', 0.86); // below the junking floor
 
     const result = await executePlan(t, planActions(t, JMAP_LIKE, DEFAULT_POLICY), mailbox, store, {
       dryRun: false,
     });
 
-    expect(mailbox.calls).toStrictEqual(['keywords:m1:$twaky-spam-certain']);
+    expect(mailbox.calls).toStrictEqual(['keywords:m1:$twaky-phishing-arnaque']);
     expect(result.proposed.map((p) => p.action)).toStrictEqual(['move']);
     store.close();
   });
@@ -200,7 +200,7 @@ describe('the policy is the boundary', () => {
     // to do, which is a configuration error worth hearing about.
     const mailbox = new RecordingMailbox();
     const store = new MailStore(':memory:');
-    const t = trace('important');
+    const t = trace('demande-interne');
 
     const result = await executePlan(
       t,
@@ -220,7 +220,7 @@ describe('the policy is the boundary', () => {
 describe('a result can be read', () => {
   it('summarises without quoting anything', async () => {
     const store = new MailStore(':memory:');
-    const t = trace('newsletter-promo');
+    const t = trace('veille-newsletter');
     const described = describeResult(
       await executePlan(t, planActions(t, JMAP_LIKE, DEFAULT_POLICY), new RecordingMailbox(), store),
     );

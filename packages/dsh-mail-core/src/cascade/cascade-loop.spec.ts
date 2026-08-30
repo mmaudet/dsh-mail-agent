@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CORPUS, CORPUS_LEARNED_PATTERNS, NO_LLM_CASES } from '../fixtures/corpus.js';
-import type { MailMessage } from '../types.js';
+import { bandOf, type MailMessage } from '../types.js';
 import { runCascade } from './cascade-loop.js';
 import {
   DEFAULT_CONFIDENCE_THRESHOLD,
@@ -70,7 +70,7 @@ describe('the cascade settles what it can without a model', () => {
 
   it('never consults the model for any case a cheaper node covers', async () => {
     for (const entry of NO_LLM_CASES) {
-      const model = modelAnswering({ category: 'standard', confidence: 1, rationale: 'x' });
+      const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 1, rationale: 'x' });
       await runCascade(entry.message, { context: contextFor(entry.message), model });
       expect(model.calls).toBe(0);
     }
@@ -107,20 +107,20 @@ describe('node 7 degrades what the model is not sure about', () => {
   it('keeps an answer at or above the threshold', async () => {
     expect(message).toBeDefined();
     const model = modelAnswering({
-      category: 'important',
+      category: 'demande-interne',
       confidence: DEFAULT_CONFIDENCE_THRESHOLD,
       rationale: 'exactly at the threshold',
     });
 
     const trace = await runCascade(message as MailMessage, { context: CONTEXT, model });
-    expect(trace.category).toBe('important');
+    expect(trace.category).toBe('demande-interne');
     expect(trace.decidedBy).toBe('llm');
   });
 
   it('degrades an answer below the threshold to needs-review', async () => {
     expect(message).toBeDefined();
     const model = modelAnswering({
-      category: 'important',
+      category: 'demande-interne',
       confidence: DEFAULT_CONFIDENCE_THRESHOLD - 0.01,
       rationale: 'unsure',
     });
@@ -135,7 +135,7 @@ describe('node 7 degrades what the model is not sure about', () => {
   it('honours a threshold the caller sets', async () => {
     expect(message).toBeDefined();
     const model = modelAnswering({
-      category: 'important',
+      category: 'demande-interne',
       confidence: 0.5,
       rationale: 'unsure',
     });
@@ -145,7 +145,7 @@ describe('node 7 degrades what the model is not sure about', () => {
       model,
       confidenceThreshold: 0.4,
     });
-    expect(trace.category).toBe('important');
+    expect(trace.category).toBe('demande-interne');
   });
 });
 
@@ -170,7 +170,7 @@ describe('every run produces a trace that can be argued with', () => {
   it('records the nodes that ran, in order, including those that declined', async () => {
     const entry = CORPUS.find((e) => e.decidedBy === 'llm');
     expect(entry).toBeDefined();
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
 
     const trace = await runCascade(entry?.message as MailMessage, { context: CONTEXT, model });
 
@@ -207,7 +207,7 @@ describe('thread continuity settles a reply without any other node running', () 
     expect(entry).toBeDefined();
 
     const trace = await runCascade(entry?.message as MailMessage, {
-      context: { ...CONTEXT, threadCategory: entry?.expected ?? 'important' },
+      context: { ...CONTEXT, threadCategory: entry?.expected ?? 'demande-interne' },
       model: FORBIDDEN_MODEL,
     });
 
@@ -279,7 +279,7 @@ describe('brand spoofing compares the display name to the domain', () => {
 
     const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
     expect(trace.decidedBy).toBe('brand-spoofing');
-    expect(trace.category).toBe('spam-probable');
+    expect(trace.category).toBe('phishing-arnaque');
   });
 
   it('never settles as spam-certain, whatever the mismatch', async () => {
@@ -300,7 +300,7 @@ describe('brand spoofing compares the display name to the domain', () => {
       });
       const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
       if (trace.decidedBy === 'brand-spoofing') {
-        expect(trace.category).toBe('spam-probable');
+        expect(trace.category).toBe('phishing-arnaque');
       }
     }
   });
@@ -315,7 +315,7 @@ describe('brand spoofing compares the display name to the domain', () => {
       spamHeaders: { 'x-spam-score': '1.1', 'x-spam-dmarc': 'fail' },
     });
 
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).not.toBe('brand-spoofing');
   });
@@ -332,7 +332,7 @@ describe('a learned pattern matches an address, not a substring of one', () => {
       subject: 'Revue hebdo des publications',
     });
 
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).not.toBe('learned-pattern');
   });
@@ -346,7 +346,7 @@ describe('a learned pattern matches an address, not a substring of one', () => {
 
     const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
     expect(trace.decidedBy).toBe('learned-pattern');
-    expect(trace.category).toBe('newsletter-tech');
+    expect(trace.category).toBe('veille-newsletter');
   });
 });
 
@@ -363,12 +363,12 @@ describe('a corporate domain is a legitimacy signal, not a category', () => {
       bodyText: 'Il me faut ton accord aujourd hui.',
     });
 
-    const model = modelAnswering({ category: 'important', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'demande-interne', confidence: 0.9, rationale: 'r' });
     const trace = await runCascade(message, { context: CONTEXT, model });
 
     expect(model.calls).toBe(1);
     expect(trace.decidedBy).toBe('llm');
-    expect(trace.category).toBe('important');
+    expect(trace.category).toBe('demande-interne');
   });
 
   it('still recognises a transactional message from a corporate domain', async () => {
@@ -381,7 +381,7 @@ describe('a corporate domain is a legitimacy signal, not a category', () => {
     });
 
     const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
-    expect(trace.category).toBe('transactional');
+    expect(trace.category).toBe('recu-transaction');
     expect(trace.decidedBy).toBe('static-rule');
   });
 });
@@ -393,22 +393,30 @@ describe('a corporate domain excludes the bulk categories without settling one',
     // The purpose of the corporate list at node 4 (PRD section 4.2): a
     // guarantee of legitimacy, not a judgement of content. A message from
     // inside the company cannot end up in Junk on a model's say-so.
-    const model = modelAnswering({ category: 'spam-certain', confidence: 0.95, rationale: 'r' });
+    const model = modelAnswering({ category: 'phishing-arnaque', confidence: 0.95, rationale: 'r' });
     const message = msg({ id: 'r8', from: [COLLEAGUE], subject: 'Offre exceptionnelle' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
-    expect(trace.category).not.toBe('spam-certain');
-    expect(trace.category).not.toBe('spam-probable');
+    expect(trace.category).not.toBe('phishing-arnaque');
+    expect(trace.category).not.toBe('phishing-arnaque');
   });
 
-  it('never lets a colleague be filed as a newsletter either', async () => {
-    const model = modelAnswering({ category: 'newsletter-promo', confidence: 0.95, rationale: 'r' });
-    const message = msg({ id: 'r9', from: [COLLEAGUE], subject: 'Newsletter interne' });
+  it('never lets a colleague be trashed as cold prospecting', async () => {
+    // The exclusion narrowed with the vocabulary, and narrowed to the part
+    // that can hurt. A colleague's internal newsletter landing in `Veille` is
+    // a filing mistake the owner can undo; a colleague's mail landing in the
+    // trash because the model read it as a sales pitch is the one that matters,
+    // and it is now the only automatic destructive action there is.
+    const model = modelAnswering({
+      category: 'prospection-commerciale-non-sollicitee',
+      confidence: 0.95,
+      rationale: 'r',
+    });
+    const message = msg({ id: 'r9', from: [COLLEAGUE], subject: 'Notre nouvelle offre' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
-    expect(trace.category).not.toBe('newsletter-promo');
-    expect(trace.category).not.toBe('newsletter-tech');
-    expect(trace.category).not.toBe('newsletter-notification');
+    expect(trace.category).not.toBe('prospection-commerciale-non-sollicitee');
+    expect(bandOf(trace.category)).not.toBe('drops');
   });
 
   it('is not accused of spoofing, since its legitimacy is already established', async () => {
@@ -420,7 +428,7 @@ describe('a corporate domain excludes the bulk categories without settling one',
       subject: 'Rappel: mise à jour',
       spamHeaders: { 'x-spam-score': '1.0', 'x-spam-dmarc': 'fail' },
     });
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).not.toBe('brand-spoofing');
@@ -428,12 +436,12 @@ describe('a corporate domain excludes the bulk categories without settling one',
 
   it('still lets the model answer a non-bulk category', async () => {
     // Excluding bulk is not deciding: the model still settles the message.
-    const model = modelAnswering({ category: 'important', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'demande-interne', confidence: 0.9, rationale: 'r' });
     const message = msg({ id: 'r11', from: [COLLEAGUE], subject: 'Peux-tu valider avant 17h ?' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).toBe('llm');
-    expect(trace.category).toBe('important');
+    expect(trace.category).toBe('demande-interne');
   });
 });
 
@@ -468,7 +476,7 @@ describe('authentication is read as servers actually write it', () => {
       'mx.example.com; dmarc=none; dkim=neutral',
       'mx.example.com; spf=temperror',
     ]) {
-      const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+      const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
       const trace = await runCascade(withHeaders('r13', { 'authentication-results': results }), {
         context: CONTEXT,
         model,
@@ -486,7 +494,7 @@ describe('authentication is read as servers actually write it', () => {
   });
 
   it('does not read a per-header softfail as forgery either', async () => {
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
     const trace = await runCascade(withHeaders('r15', { 'x-spam-spf': 'softfail' }), {
       context: CONTEXT,
       model,
@@ -510,7 +518,7 @@ describe('the prefilter reads the filter the server actually runs', () => {
 
     const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
     expect(trace.decidedBy).toBe('spam-prefilter');
-    expect(trace.category).toBe('spam-certain');
+    expect(trace.category).toBe('phishing-arnaque');
   });
 
   it('honours a threshold above the documented default', async () => {
@@ -522,7 +530,7 @@ describe('the prefilter reads the filter the server actually runs', () => {
         'org.apache.james.rspamd.status': 'No, actions=no action score=12.0 requiredScore=15.0',
       },
     });
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).not.toBe('spam-prefilter');
@@ -541,7 +549,7 @@ describe('the prefilter reads the filter the server actually runs', () => {
         'org.apache.james.rspamd.status': 'No, actions=no action score=-1.307155 requiredScore=15.0',
       },
     });
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).not.toBe('spam-prefilter');
@@ -560,30 +568,46 @@ describe('bulk mail with no sub-category signal is not guessed at', () => {
       subject: 'Re: [License-review] For Approval: OpenMDW License Agreement',
       listUnsubscribe: ['https://lists.example/unsub'],
     });
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
 
     const trace = await runCascade(message, { context: CONTEXT, model });
     expect(trace.decidedBy).toBe('llm');
-    expect(trace.category).toBe('standard');
+    expect(trace.category).toBe('rapport-compte-rendu-interne');
   });
 
-  it('still settles bulk that says what it is', async () => {
-    for (const [subject, expected] of [
-      ['Weekly digest #42', 'newsletter-tech'],
-      ['-40% ce week-end', 'newsletter-promo'],
-      ['Alerte sur votre dépôt', 'newsletter-notification'],
-    ] as const) {
+  it('sends bulk to the model rather than guessing which bulk it is', async () => {
+    // The rule this replaces read the sender's local part and the subject for
+    // a newsletter sub-category. On the target inbox 40 of 42 bulk messages
+    // matched nothing, and the two it answered were wrong.
+    //
+    // What makes declining necessary rather than merely honest: the two bulk
+    // categories are handled in opposite directions. Subscribed editorial is
+    // filed; cold prospecting is trashed unattended. `List-Unsubscribe` is on
+    // both, and the question that separates them — did the owner ask for it —
+    // is not in any header.
+    for (const subject of ['Weekly digest #42', '-40% ce week-end', 'Alerte sur votre dépôt']) {
       const message = msg({
-        id: `r21-${expected}`,
+        id: `r21-${subject}`,
         from: [{ name: 'Bulk', email: 'hello@bulk.example' }],
         subject,
         listUnsubscribe: ['https://bulk.example/u'],
       });
-
-      const trace = await runCascade(message, { context: CONTEXT, model: FORBIDDEN_MODEL });
-      expect(trace.decidedBy).toBe('static-rule');
-      expect(trace.category).toBe(expected);
+      const model = modelAnswering({ category: 'veille-newsletter', confidence: 0.9, rationale: 'r' });
+      const trace = await runCascade(message, { context: CONTEXT, model });
+      expect(trace.decidedBy).toBe('llm');
     }
+  });
+
+  it('settles a List-Id without a model call, which List-Unsubscribe cannot buy', () => {
+    // `List-Id` (RFC 2919) names *what* the message is bulk from, and a list is
+    // a list whatever it carries. 5% of the target mailbox, at zero cost.
+    return runCascade(
+      msg({ id: 'r22', listId: 'discuss.lists.example', subject: 'Re: a thread' }),
+      { context: CONTEXT, model: FORBIDDEN_MODEL },
+    ).then((trace) => {
+      expect(trace.decidedBy).toBe('static-rule');
+      expect(trace.category).toBe('liste-diffusion');
+    });
   });
 });
 
@@ -602,30 +626,34 @@ describe('node 3 recognises a mailing list', () => {
       context: {
         ...CONTEXT,
         learnedPatterns: [
-          { listId: LIST, sender: null, subjectContains: null, category: 'standard', confidence: 0.9 },
+          { listId: LIST, sender: null, subjectContains: null, category: 'rapport-compte-rendu-interne', confidence: 0.9 },
         ],
       },
       model: FORBIDDEN_MODEL,
     });
 
     expect(trace.decidedBy).toBe('learned-pattern');
-    expect(trace.category).toBe('standard');
+    expect(trace.category).toBe('rapport-compte-rendu-interne');
   });
 
   it('does not settle a message from another list', async () => {
     const message = msg({ id: 'r23', listId: 'other.lists.example', subject: 'Hello' });
-    const model = modelAnswering({ category: 'standard', confidence: 0.9, rationale: 'r' });
+    const model = modelAnswering({ category: 'rapport-compte-rendu-interne', confidence: 0.9, rationale: 'r' });
 
     const trace = await runCascade(message, {
       context: {
         ...CONTEXT,
         learnedPatterns: [
-          { listId: LIST, sender: null, subjectContains: null, category: 'important', confidence: 0.9 },
+          { listId: LIST, sender: null, subjectContains: null, category: 'demande-interne', confidence: 0.9 },
         ],
       },
       model,
     });
 
-    expect(trace.decidedBy).toBe('llm');
+    // Node 4 settles it as generic list traffic, which is the right answer for
+    // a list nothing has been learned about. What matters is that the pattern
+    // learned for one list did not leak onto another.
+    expect(trace.decidedBy).toBe('static-rule');
+    expect(trace.category).toBe('liste-diffusion');
   });
 });

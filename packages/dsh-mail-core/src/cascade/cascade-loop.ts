@@ -19,7 +19,7 @@
  * with one (PRD section 4.6).
  */
 
-import type { MailAddress, MailCategory, MailMessage } from '../types.js';
+import { bandOf, type MailAddress, type MailCategory, type MailMessage } from '../types.js';
 import {
   DEFAULT_CONFIDENCE_THRESHOLD,
   type CascadeContext,
@@ -84,44 +84,10 @@ const TRANSACTIONAL_MARKERS: readonly string[] = [
   'facture',
 ];
 
-/** Subject markers of a commercial (promo) newsletter. */
-const PROMO_MARKERS: readonly string[] = [
-  '%',
-  'solde',
-  'promotion',
-  'promo',
-  'offre',
-  'semaine',
-  'rdv',
-  'réduction',
-  'remise',
-  'deal',
-  'discount',
-];
-
-/** Subject markers of a machine-generated notification. */
-const MACHINE_MARKERS: readonly string[] = [
-  '[repo]',
-  'pull request',
-  'notification',
-  'alerte',
-  'alert',
-  'merged',
-  'deploy',
-  'new issue',
-  'issue #',
-  'ticket #',
-];
-
 /**
  * The rationale a `List-Unsubscribe` mail is settled with, per sub-category.
  * Kept in one place so the three newsletter answers read as one decision.
  */
-const NEWSLETTER_RATIONALE: Readonly<Record<'newsletter-tech' | 'newsletter-promo' | 'newsletter-notification', string>> = {
-  'newsletter-tech': 'bulk newsletter with an unsubscribe link; technology edition',
-  'newsletter-promo': 'commercial bulk mail with an unsubscribe link',
-  'newsletter-notification': 'machine notification with an unsubscribe link',
-};
 
 // ---------------------------------------------------------------------------
 // The cascade
@@ -191,7 +157,7 @@ export async function runCascade(message: MailMessage, options: CascadeOptions):
     // say-so. Rather than substitute a category of our own, the answer
     // degrades to the honest non-answer: something is off, a person looks.
     const answer: NodeVerdict =
-      corporate && BULK_CATEGORIES.includes(raw.category)
+      corporate && isDropped(raw.category)
         ? {
             category: 'needs-review',
             confidence: raw.confidence,
@@ -260,8 +226,15 @@ function threadContinuity(context: CascadeContext): NodeVerdict | null {
 function spamPrefilter(message: MailMessage): NodeVerdict | null {
   const verdict = readSpamVerdict(message.spamHeaders);
   if (verdict !== null && verdict.score >= verdict.threshold) {
+    // A filter score says the message is unwanted; it does not say which of
+    // the three unwanted kinds. That costs nothing here, because
+    // `phishing-arnaque` and `spam-formulaire-contact` are handled
+    // identically — both to Junk, both asking above 0.9 — and the third,
+    // cold prospecting, does not usually trip a filter at all. Where the
+    // distinction would matter, it is `prospection` that is trashed, and a
+    // filter hit is evidence against it being that.
     return {
-      category: 'spam-certain',
+      category: 'phishing-arnaque',
       confidence: 1,
       rationale: 'spam-filter score is past the junk threshold',
     };
@@ -318,26 +291,40 @@ function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict
   if (from !== null) {
     const email = from.email.toLowerCase();
     if (context.vipSenders.some((vip) => vip.toLowerCase() === email)) {
-      return { category: 'important', confidence: 1, rationale: 'sender is on the VIP list' };
+      // A VIP is a person the owner answers. Which kind of answer depends on
+      // which side of the company they write from, and that is the one thing
+      // the address settles on its own.
+      return isCorporate(message, context)
+        ? { category: 'demande-interne', confidence: 1, rationale: 'sender is a colleague on the VIP list' }
+        : { category: 'correspondance-commerciale-client', confidence: 1, rationale: 'sender is on the VIP list' };
     }
   }
   if (hasAnyMarker(message.subject.toLowerCase(), TRANSACTIONAL_MARKERS)) {
-    return { category: 'transactional', confidence: 1, rationale: 'transactional message (code or receipt); never digested' };
+    return { category: 'recu-transaction', confidence: 1, rationale: 'a receipt or a code: money that has already moved' };
   }
-  if (message.listUnsubscribe.length > 0) {
-    // `List-Unsubscribe` proves the message is bulk. It says nothing about
-    // which kind, and the vocabulary has no generic bulk category — so when no
-    // sub-category signal matches, this node declines rather than guessing.
-    //
-    // Measured on the target inbox: 40 of 42 bulk messages matched nothing,
-    // and the default was filing a mailing list, an OVH support case and a
-    // traffic-fine notice as a technology newsletter. At confidence 1, which
-    // node 7 cannot degrade and the model never reviews.
-    const category = newsletterSubcategory(message);
-    if (category !== null) {
-      return { category, confidence: 1, rationale: NEWSLETTER_RATIONALE[category] };
-    }
+  if (message.listId !== null) {
+    // `List-Id` (RFC 2919) is the one bulk header that names *what* the
+    // message is bulk from, and a list is a list whatever it carries. 5% of
+    // the target mailbox, settled without a model call.
+    return { category: 'liste-diffusion', confidence: 1, rationale: 'carries a List-Id: mailing-list traffic' };
   }
+
+  // `List-Unsubscribe` deliberately settles nothing, though it is the more
+  // common header by far.
+  //
+  // It proves the message is bulk and stops there, and the two bulk
+  // categories it could mean are handled in opposite directions: subscribed
+  // editorial content is filed and read, cold prospecting is trashed without
+  // asking. Separating them is the question of whether the owner ever asked
+  // for it, which no header records — so it goes to node 6, which can read
+  // the difference between an editorial and a sales pitch.
+  //
+  // This costs efficiency and buys correctness. The previous version of this
+  // rule guessed a newsletter sub-category from the sender's local part, and
+  // on the target inbox 40 of 42 bulk messages matched nothing while the two
+  // it did answer were wrong: a mailing list, an OVH support case and a
+  // traffic-fine notice, all filed as a technology newsletter at confidence 1,
+  // where node 7 cannot degrade them and the model never reviews them.
   return null;
 }
 
@@ -355,14 +342,14 @@ function brandSpoofing(message: MailMessage): NodeVerdict | null {
   if (from === null || from.name === null || from.name.trim() === '') return null;
   if (!authenticationFailed(message.spamHeaders)) return null;
   if (nameSupportedByDomain(from.name, domainOf(from.email.toLowerCase()))) return null;
-  // `spam-probable`, never `spam-certain`. The comparison cannot tell an
-  // impersonation from a generic display name on a badly configured relay:
-  // `Support` at `zendesk.example` fails it exactly as a lookalike domain
-  // does. Probable spam is junked but listed in the weekly digest, so a
-  // mistake here is visible and reversible (PRD section 4.5); certain spam is
-  // not, and this node has not earned that.
+  // Confidence 0.8, deliberately below the 0.9 the policy needs to file
+  // anything into Junk. The comparison cannot tell an impersonation from a
+  // generic display name on a badly configured relay: `Support` at
+  // `zendesk.example` fails it exactly as a lookalike domain does. This node
+  // marks and reports; it does not file. Node 2, which reads a filter's score
+  // rather than inferring one, answers 1 and does.
   return {
-    category: 'spam-probable',
+    category: 'phishing-arnaque',
     confidence: 0.8,
     rationale: 'display name claims an identity the sender domain does not support, while message authentication fails',
   };
@@ -382,12 +369,6 @@ function firstFrom(message: MailMessage): MailAddress | null {
 function domainOf(email: string): string {
   const domain = email.split('@')[1];
   return domain === undefined ? '' : domain;
-}
-
-/** The local part of a lowercased address: `a@b.example` -> `a`. */
-function localPartOf(email: string): string {
-  const local = email.split('@')[0];
-  return local === undefined ? '' : local;
 }
 
 /**
@@ -503,46 +484,19 @@ function isCorporate(message: MailMessage, context: CascadeContext): boolean {
   return context.corporateDomains.some((d) => d.toLowerCase() === domain);
 }
 
-const BULK_CATEGORIES: readonly MailCategory[] = [
-  'spam-certain',
-  'spam-probable',
-  'newsletter-tech',
-  'newsletter-promo',
-  'newsletter-notification',
-];
+/**
+ * What a message from a colleague may never be called.
+ *
+ * The `drops` band is the whole of it: a colleague's mail is not junked, not
+ * trashed and not called prospecting, whatever else the cascade thinks. The
+ * band is read rather than listed, so a category added to it later is covered
+ * without anyone remembering to come back here.
+ */
+function isDropped(category: MailCategory): boolean {
+  return bandOf(category) === 'drops';
+}
 
 /** True when a (lowercased) subject carries any of the given markers. */
 function hasAnyMarker(subject: string, markers: readonly string[]): boolean {
   return markers.some((marker) => subject.includes(marker));
 }
-
-/**
- * Which newsletter sub-category a `List-Unsubscribe` mail belongs to, or
- * `null` when nothing says.
- *
- * The local part of the sender is the strongest signal (a `promos@` or
- * `notifications@` address); the subject markers cover senders with a plain
- * local part. There is deliberately no default: which kind of bulk a message
- * is, is a judgement about its content, and that is what node 6 exists for.
- */
-function newsletterSubcategory(
-  message: MailMessage,
-): 'newsletter-tech' | 'newsletter-promo' | 'newsletter-notification' | null {
-  const from = firstFrom(message);
-  const local = from !== null ? localPartOf(from.email.toLowerCase()) : '';
-  const subject = message.subject.toLowerCase();
-  if (local.includes('promo') || hasAnyMarker(subject, PROMO_MARKERS)) return 'newsletter-promo';
-  if (local.includes('notif') || hasAnyMarker(subject, MACHINE_MARKERS)) return 'newsletter-notification';
-  if (local.includes('news') || hasAnyMarker(subject, TECH_MARKERS)) return 'newsletter-tech';
-  return null;
-}
-
-/** Signals that a bulk message really is a technology digest. */
-const TECH_MARKERS: readonly string[] = [
-  'digest',
-  'weekly',
-  'hebdo',
-  'newsletter',
-  'release',
-  'changelog',
-];

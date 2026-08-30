@@ -175,7 +175,7 @@ describe('getMessages', () => {
         id: 'e1',
         threadId: 't1',
         mailboxIds: { 'mb-tech': true },
-        keywords: { $seen: true, '$twaky-newsletter-tech': true },
+        keywords: { $seen: true, '$twaky-veille-newsletter': true },
         messageId: ['abc@example.org'],
         inReplyTo: ['prev@example.org'],
         references: ['root@example.org'],
@@ -217,7 +217,7 @@ describe('getMessages', () => {
       bodyText: 'Body text',
       bodyHtml: null,
       hasAttachments: false,
-      keywords: ['$seen', '$twaky-newsletter-tech'],
+      keywords: ['$seen', '$twaky-veille-newsletter'],
     });
     expect(message?.receivedAt.toISOString()).toBe('2026-08-20T10:00:00.000Z');
   });
@@ -274,11 +274,11 @@ describe('writes', () => {
   it('lowercases keywords, which JMAP compares case-insensitively', async () => {
     const transport = transportOf({});
     const adapter = adapterWith(transport);
-    await adapter.setKeywords('e1', ['$Seen', '$TWAKY-Important']);
+    await adapter.setKeywords('e1', ['$Seen', '$TWAKY-Demande-Interne']);
 
     expect(transport.sent[0]?.methodCalls[0]?.[1]).toStrictEqual({
       accountId: 'acc1',
-      update: { e1: { keywords: { $seen: true, '$twaky-important': true } } },
+      update: { e1: { keywords: { $seen: true, '$twaky-demande-interne': true } } },
     });
   });
 

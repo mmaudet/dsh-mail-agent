@@ -9,7 +9,7 @@
  * has taken so far was preceded by one.
  */
 
-import { categoryFallback } from '../mail-service.js';
+import { categoryFallback, destinationFor } from '../mail-service.js';
 import { sentinelKeyword, type Capabilities, type MailCategory } from '../types.js';
 import type { DecisionTrace } from '../cascade/types.js';
 import { approvalFor, type Approval, type ApprovalPolicy, type MailAction } from './approval.js';
@@ -63,7 +63,7 @@ export function planActions(
   }
 
   // Moving, where the category names a destination (PRD 4.5).
-  const folder = destinationFor(category, capabilities, fallback.folder);
+  const folder = destinationFor(category);
   if (folder !== null) {
     planned.push({
       messageId,
@@ -74,41 +74,31 @@ export function planActions(
     });
   }
 
+  // Trashing, where the category is mail the owner does not want at all.
+  //
+  // Planned rather than moved because the two are not the same act: a move
+  // files something the owner keeps, and the trash empties on a timer. Spam
+  // still goes to Junk, which is where an owner looks for a false positive.
+  if (TRASHED.has(category)) {
+    planned.push({
+      messageId,
+      action: 'trash',
+      approval: approvalFor(policy, category, 'trash', confidence),
+      because: `${category} is mail the owner does not want`,
+    });
+  }
+
   return planned;
 }
 
 /**
- * Where a category's mail goes, or `null` when it stays where it is.
+ * The categories whose mail is trashed rather than filed.
  *
- * `important`, `standard` and `needs-review` have no destination by design:
- * the first two are the owner's to read where they left them, and the third is
- * the cascade saying it does not know, which is not a reason to move anything.
+ * One, so far, and it is the largest category in the target mailbox: cold
+ * prospecting is 16% of it, ahead of the owner's client correspondence. The
+ * owner asked for it to leave without being asked each time.
  */
-function destinationFor(
-  category: MailCategory,
-  capabilities: Capabilities,
-  fallbackFolder: string | null,
-): string | null {
-  switch (category) {
-    case 'newsletter-tech':
-      return 'Newsletters/Tech';
-    case 'newsletter-promo':
-      return 'Newsletters/Promo';
-    case 'newsletter-notification':
-      return 'Newsletters/Notifications';
-    case 'spam-certain':
-    case 'spam-probable':
-      return 'Junk';
-    case 'transactional':
-      // PRD 4.5 keeps it in the inbox for a day and archives it after. The
-      // delay belongs to the scheduler; what is planned here is the
-      // destination, and a server with no archive folder — Gmail — has none to
-      // offer.
-      return capabilities.customKeywords ? 'Archives/Transactions' : fallbackFolder;
-    default:
-      return null;
-  }
-}
+const TRASHED: ReadonlySet<MailCategory> = new Set(['prospection-commerciale-non-sollicitee']);
 
 /** The subset a caller may perform without asking anyone. */
 export function automatic(planned: readonly PlannedAction[]): PlannedAction[] {

@@ -18,16 +18,25 @@ import {
 } from './approval.js';
 
 const CATEGORIES: readonly MailCategory[] = [
-  'important',
-  'standard',
-  'newsletter-tech',
-  'newsletter-promo',
-  'newsletter-notification',
-  'transactional',
-  'spam-probable',
-  'spam-certain',
+  'correspondance-commerciale-client',
+  'obligations-administratives-echeance',
+  'demande-interne',
+  'planification-reunion-rdv',
+  'incident-securite',
+  'veille-newsletter',
+  'support-technique-ticket',
+  'rapport-compte-rendu-interne',
+  'notifications-personnelles-diverses',
+  'liste-diffusion',
+  'recu-transaction',
+  'rh-interne',
+  'candidature-emploi',
+  'prospection-commerciale-non-sollicitee',
+  'spam-formulaire-contact',
+  'phishing-arnaque',
   'needs-review',
 ];
+
 const ACTIONS: readonly MailAction[] = ['keyword', 'move', 'trash', 'draft', 'send'];
 
 describe('what the table does not say', () => {
@@ -65,18 +74,13 @@ describe('what runs without asking, and only that', () => {
     // Only tagging. Every move and every draft was demoted to `ask` after the
     // first dry run over a real mailbox filed a bounce and a sales enquiry out
     // of the inbox.
+    // Written out rather than counted, so widening the policy fails this test
+    // by name instead of by an off-by-one nobody reads.
+    //
+    // Only tagging. Every move and every draft is `ask`, on the evidence of
+    // the first dry run over a real mailbox.
     expect(auto.sort()).toStrictEqual(
-      [
-        'keyword:important',
-        'keyword:needs-review',
-        'keyword:newsletter-notification',
-        'keyword:newsletter-promo',
-        'keyword:newsletter-tech',
-        'keyword:spam-certain',
-        'keyword:spam-probable',
-        'keyword:standard',
-        'keyword:transactional',
-      ].sort(),
+      CATEGORIES.map((c) => `keyword:${c}`).sort(),
     );
   });
 
@@ -96,7 +100,7 @@ describe('what runs without asking, and only that', () => {
   });
 
   it('never moves what the owner is expected to act on', () => {
-    for (const category of ['important', 'standard', 'needs-review'] as const) {
+    for (const category of ['demande-interne', 'rapport-compte-rendu-interne', 'needs-review'] as const) {
       expect(approvalFor(DEFAULT_POLICY, category, 'move', 1)).not.toBe('auto');
     }
   });
@@ -108,10 +112,10 @@ describe('the confidence floor', () => {
     // this floor exists to prevent — and it still applies when a category is
     // promoted back to `auto` on the evidence of its own traces.
     const promoted: ApprovalPolicy = {
-      rules: [{ category: 'spam-certain', action: 'move', approval: 'auto', minConfidence: 0.9 }],
+      rules: [{ category: 'phishing-arnaque', action: 'move', approval: 'auto', minConfidence: 0.9 }],
     };
-    expect(approvalFor(promoted, 'spam-certain', 'move', 0.95)).toBe('auto');
-    expect(approvalFor(promoted, 'spam-certain', 'move', 0.85)).toBe('ask');
+    expect(approvalFor(promoted, 'phishing-arnaque', 'move', 0.95)).toBe('auto');
+    expect(approvalFor(promoted, 'phishing-arnaque', 'move', 0.85)).toBe('ask');
   });
 
   it('is strictest where the mistake hides mail', () => {
@@ -121,14 +125,14 @@ describe('the confidence floor', () => {
     const floorOf = (c: MailCategory): number =>
       DEFAULT_POLICY.rules.find((r) => r.category === c && r.action === 'move')?.minConfidence ?? 0;
 
-    expect(floorOf('spam-certain')).toBeGreaterThan(floorOf('newsletter-tech'));
+    expect(floorOf('phishing-arnaque')).toBeGreaterThan(floorOf('veille-newsletter'));
   });
 
   it('does not turn a refusal into a proposal', () => {
     const policy: ApprovalPolicy = {
-      rules: [{ category: 'important', action: 'trash', approval: 'never', minConfidence: 0.9 }],
+      rules: [{ category: 'demande-interne', action: 'trash', approval: 'never', minConfidence: 0.9 }],
     };
-    expect(approvalFor(policy, 'important', 'trash', 0.5)).toBe('never');
+    expect(approvalFor(policy, 'demande-interne', 'trash', 0.5)).toBe('never');
   });
 });
 
@@ -137,7 +141,7 @@ describe('the table can be read', () => {
     // An owner approves this text, not the source. It has to carry the two
     // facts that matter: what happens unattended, and how sure it must be.
     const described = describePolicy(DEFAULT_POLICY);
-    expect(described).toContain('keyword  important');
+    expect(described).toContain('keyword  demande-interne');
     expect(described).toContain('Everything else asks first');
     // Nothing that changes where a message lives runs unattended today.
     expect(described).not.toContain('move');

@@ -96,9 +96,9 @@ describe('MailboxService registration', () => {
 describe('setKeywords on a server with custom keywords', () => {
   it('passes keywords straight through and moves nothing', async () => {
     const { service, adapter } = mount(JMAP_LIKE);
-    await service.setKeywords('m1', ['$twaky-newsletter-promo', '$seen']);
+    await service.setKeywords('m1', ['$twaky-veille-newsletter', '$seen']);
     expect(adapter.calls).toStrictEqual([
-      { op: 'setKeywords', id: 'm1', keywords: ['$twaky-newsletter-promo', '$seen'] },
+      { op: 'setKeywords', id: 'm1', keywords: ['$twaky-veille-newsletter', '$seen'] },
     ]);
   });
 });
@@ -106,35 +106,39 @@ describe('setKeywords on a server with custom keywords', () => {
 describe('setKeywords on a server without custom keywords', () => {
   it('files a newsletter into its folder instead of tagging it', async () => {
     const { service, adapter } = mount(IMAP_LIKE);
-    await service.setKeywords('m1', ['$twaky-newsletter-promo']);
+    await service.setKeywords('m1', ['$twaky-veille-newsletter']);
     expect(adapter.calls).toStrictEqual([
-      { op: 'moveMessage', id: 'm1', folder: 'Newsletters/Promo' },
+      { op: 'moveMessage', id: 'm1', folder: 'Veille' },
     ]);
   });
 
   it('flags an important message in place rather than moving it', async () => {
     const { service, adapter } = mount(IMAP_LIKE);
-    await service.setKeywords('m1', ['$twaky-important']);
+    await service.setKeywords('m1', ['$twaky-demande-interne']);
     expect(adapter.calls).toStrictEqual([
       { op: 'setKeywords', id: 'm1', keywords: ['\\Flagged'] },
     ]);
   });
 
-  it('does nothing at all for a standard message', async () => {
+  it('does nothing at all for a category with no flag and no folder', async () => {
+    // `rh-interne` concerns a named person and is usually short-lived, so it
+    // stays in the inbox unmarked on a server that cannot tag.
     const { service, adapter } = mount(IMAP_LIKE);
-    await service.setKeywords('m1', ['$twaky-standard']);
+    await service.setKeywords('m1', ['$twaky-rh-interne']);
     expect(adapter.calls).toStrictEqual([]);
   });
 
-  it('leaves a transactional message in place for a later phase to archive', async () => {
+  it('files a receipt into the accounting folder', async () => {
     const { service, adapter } = mount(IMAP_LIKE);
-    await service.setKeywords('m1', ['$twaky-transactional']);
-    expect(adapter.calls).toStrictEqual([]);
+    await service.setKeywords('m1', ['$twaky-recu-transaction']);
+    expect(adapter.calls).toStrictEqual([
+      { op: 'moveMessage', id: 'm1', folder: 'Archives/Comptabilite' },
+    ]);
   });
 
   it('still stores standard IMAP flags the server does understand', async () => {
     const { service, adapter } = mount(IMAP_LIKE);
-    await service.setKeywords('m1', ['$seen', '$twaky-spam-certain']);
+    await service.setKeywords('m1', ['$seen', '$twaky-phishing-arnaque']);
     expect(adapter.calls).toStrictEqual([
       { op: 'setKeywords', id: 'm1', keywords: ['$seen'] },
       { op: 'moveMessage', id: 'm1', folder: 'Junk' },
@@ -144,14 +148,14 @@ describe('setKeywords on a server without custom keywords', () => {
 
 describe('planDegradedKeywords', () => {
   it('sends a message to one folder even when two categories name one', () => {
-    expect(planDegradedKeywords(['$twaky-spam-certain', '$twaky-newsletter-tech'])).toStrictEqual({
+    expect(planDegradedKeywords(['$twaky-phishing-arnaque', '$twaky-veille-newsletter'])).toStrictEqual({
       flags: [],
       folder: 'Junk',
     });
   });
 
   it('matches Sentinel tags case-insensitively', () => {
-    expect(planDegradedKeywords(['$TWAKY-IMPORTANT'])).toStrictEqual({
+    expect(planDegradedKeywords(['$TWAKY-DEMANDE-INTERNE'])).toStrictEqual({
       flags: ['\\Flagged'],
       folder: null,
     });
