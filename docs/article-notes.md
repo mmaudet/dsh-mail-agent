@@ -1041,6 +1041,77 @@ floor, always the most recent decision — and they bound it rather than remove
 it. Worth being explicit about in a write-up that is otherwise about efficiency:
 the cheapest node in the cascade is also the one that compounds an error.
 
+## §14 — Sept instruments, et ce que chacun a trouvé que les autres ne pouvaient pas
+
+The through-line of this project is not the agent. It is that each new way of
+looking found defects the previous ones could not, in code that was already
+green, and that the *ordering* of those instruments is the finding.
+
+| Instrument | Finds | Found here |
+|---|---|---|
+| unit tests, against fakes | reasoning | the cursor arithmetic, the degradation paths |
+| an integration suite | what the protocol does | `LIST-EXTENDED` advertised and broken |
+| a live call | what the deployment does | three defects behind one `mail_ping` |
+| a dry run over real data | how often any of it happens | 43% was an unreviewed guess |
+| a holdout | whether learning generalises | patterns pay 2 points, not 50 |
+| a second mailbox | whether the story was a description | it was |
+| a scale check | whether the sample was the thing | 256 of 32837 |
+
+Every row cost something to build and every row paid. The last one is the
+cheapest and was built last, which is the wrong order and worth admitting.
+
+### The failures were all the same failure
+
+Six harness defects during the model benchmark, then a paging bug, then a
+capped response read as an exhausted folder. Every one of them is **a tolerant
+read of a signal that was actually telling me something**:
+
+- a stream ending without `[DONE]` — truncation, or a provider that does not
+  send it
+- a short page — exhausted, or capped
+- `capabilities.spamHeaders: true` — the server exposes them, or the client
+  never asked
+- `limit: 0` — nothing wanted, or `invalidArguments`
+
+The pattern generalises past this project: **when a system's answer is
+ambiguous between "fine" and "something is wrong", the default reading is the
+one that lets you carry on.** The instruments that caught these are the ones
+that made carrying on impossible.
+
+### And a discipline that worked
+
+Writing the judge before the implementation, and not by whoever implements it.
+It caught a model shipping three rules that were too narrow, then a correction
+that made one too wide, and it made both visible as *changes to a number*
+rather than as opinions about code.
+
+Its limit is equally clear: an executable criterion pins the cases in it and
+says nothing about the space between them. Both rounds passed every test that
+existed when they were written.
+
+## §15 — Ce que le coût réel dit de l'architecture
+
+The cascade's premise is that most mail never reaches the expensive path. On
+two real mailboxes:
+
+| | |
+|---|---|
+| static rules | 6-9% |
+| spam prefilter | ~1% |
+| learned patterns, ceiling | ~19% |
+| thread continuity, cold | +8 points |
+| thread continuity, headroom | 44% of the inbox is in a thread with a history |
+
+Three cache designs failed before one worked, and they failed for the same
+reason: **they were keyed on the sender, and a sender is not a category.** A
+marketplace sends order confirmations and promotions; a colleague sends a
+question, a document and a note. A thread is the first unit tried that is
+actually one thing.
+
+The number to publish is not the percentage. It is that **the unit of
+recurrence in a mailbox is the conversation, not the correspondent**, and that
+finding it took four experiments, two mailboxes and a corrected sample size.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
