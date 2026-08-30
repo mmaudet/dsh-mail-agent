@@ -43,6 +43,9 @@ const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/
 const MODEL = arg('model', 'Mistral-Small-3.2-24B-Instruct-2506-FP8');
 const KEY = THIRD_PARTY ? process.env.OPENROUTER_API_KEY : process.env.MAIL_SENTINEL_API_KEY;
 const REFERENCE = arg('reference', '/tmp/taxonomy-validation.json');
+// Named after the model: two runs used to write the same path, so comparing
+// two models meant the second silently ate the first.
+const OUT = arg('out', `/tmp/dry-run-${MODEL.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`);
 const PINNED = arg('pinned', '/tmp/taxonomy-corpus.json');
 
 if (!SOVEREIGN.test(BASE)) {
@@ -177,7 +180,7 @@ const queue = [...pinned];
 await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(queue)));
 process.stderr.write(`\r  ${done}/${pinned.length}\n`);
 rows.sort((a, b) => a.n - b.n);
-writeFileSync('/tmp/dry-run-sixteen.json', JSON.stringify(rows, null, 2));
+writeFileSync(OUT, JSON.stringify(rows, null, 2));
 
 const ok = rows.filter((r) => r.category !== undefined);
 const failed = rows.length - ok.length;
@@ -237,4 +240,4 @@ for (const cat of [...new Set([...Object.keys(dist), ...Object.keys(refDist)])].
   console.log(`  ${cat.padEnd(41)} ${String(dist[cat] ?? 0).padStart(5)}   ${String(refDist[cat] ?? 0).padStart(5)}`);
 }
 if (failed > 0) console.log(`\n  ${failed} messages errored.`);
-console.log('\n  written to /tmp/dry-run-sixteen.json');
+console.log(`\n  written to ${OUT}`);
