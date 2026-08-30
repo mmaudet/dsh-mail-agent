@@ -302,12 +302,24 @@ function staticRules(message: MailMessage, context: CascadeContext): NodeVerdict
   if (hasAnyMarker(message.subject.toLowerCase(), TRANSACTIONAL_MARKERS)) {
     return { category: 'recu-transaction', confidence: 1, rationale: 'a receipt or a code: money that has already moved' };
   }
-  if (message.listId !== null) {
-    // `List-Id` (RFC 2919) is the one bulk header that names *what* the
-    // message is bulk from, and a list is a list whatever it carries. 5% of
-    // the target mailbox, settled without a model call.
-    return { category: 'liste-diffusion', confidence: 1, rationale: 'carries a List-Id: mailing-list traffic' };
-  }
+  // `List-Id` deliberately settles nothing either, and the reason is the same
+  // one that removed the rule below it — found the same way, by running it.
+  //
+  // "A list is a list whatever it carries" is false on real mail. Every bulk
+  // sender sets `List-Id`: Mailchimp, Sendinblue, Google Alerts, a company's
+  // own `vente@` alias. Measured on 400 messages, 84 carry the header and 19
+  // are list traffic — 77% wrong, at confidence 1, where node 7 cannot degrade
+  // it and the model never reviews it.
+  //
+  // Requiring the message to be a reply catches all 19 and cuts the rest to
+  // about 18, which is still only half right.
+  //
+  // What the same measurement says instead: of 36 distinct `List-Id` values,
+  // **zero** are sometimes list traffic and sometimes not. Each value is
+  // consistently one or the other, which is exactly the condition node 3
+  // learns under — it groups by `List-Id` first and requires unanimity. So
+  // this is earned per list rather than assumed from the header, and a cold
+  // agent simply asks the model until it has seen a list three times.
 
   // `List-Unsubscribe` deliberately settles nothing, though it is the more
   // common header by far.

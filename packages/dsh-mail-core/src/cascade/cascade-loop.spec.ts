@@ -598,14 +598,38 @@ describe('bulk mail with no sub-category signal is not guessed at', () => {
     }
   });
 
-  it('settles a List-Id without a model call, which List-Unsubscribe cannot buy', () => {
-    // `List-Id` (RFC 2919) names *what* the message is bulk from, and a list is
-    // a list whatever it carries. 5% of the target mailbox, at zero cost.
+  it('sends a List-Id to the model too, rather than assuming it is a list', () => {
+    // Measured on 400 real messages: 84 carry `List-Id` and 19 are list
+    // traffic. Every bulk sender sets the header, including a company's own
+    // `vente@` alias.
     return runCascade(
-      msg({ id: 'r22', listId: 'discuss.lists.example', subject: 'Re: a thread' }),
-      { context: CONTEXT, model: FORBIDDEN_MODEL },
+      msg({ id: 'r22', listId: 'campaign.list-id.mailin.fr', subject: 'Notre offre du mois' }),
+      {
+        context: CONTEXT,
+        model: modelAnswering({ category: 'veille-newsletter', confidence: 0.9, rationale: 'r' }),
+      },
     ).then((trace) => {
-      expect(trace.decidedBy).toBe('static-rule');
+      expect(trace.decidedBy).toBe('llm');
+    });
+  });
+
+  it('settles a list it has learned, which is where List-Id belongs', () => {
+    // Of 36 distinct `List-Id` values in that sample, zero were sometimes list
+    // traffic and sometimes not. Consistency per value is what node 3 learns
+    // under, so the header earns its answer instead of asserting one.
+    return runCascade(
+      msg({ id: 'r22b', listId: 'discuss.lists.example', subject: 'Re: a thread' }),
+      {
+        context: {
+          ...CONTEXT,
+          learnedPatterns: [
+            { listId: 'discuss.lists.example', sender: null, subjectContains: null, category: 'liste-diffusion', confidence: 0.9 },
+          ],
+        },
+        model: FORBIDDEN_MODEL,
+      },
+    ).then((trace) => {
+      expect(trace.decidedBy).toBe('learned-pattern');
       expect(trace.category).toBe('liste-diffusion');
     });
   });
@@ -650,10 +674,9 @@ describe('node 3 recognises a mailing list', () => {
       model,
     });
 
-    // Node 4 settles it as generic list traffic, which is the right answer for
-    // a list nothing has been learned about. What matters is that the pattern
-    // learned for one list did not leak onto another.
-    expect(trace.decidedBy).toBe('static-rule');
-    expect(trace.category).toBe('liste-diffusion');
+    // Nothing has been learned about this list, and no static rule claims it,
+    // so it reaches the model. What matters is that the pattern learned for
+    // one list did not leak onto another.
+    expect(trace.decidedBy).toBe('llm');
   });
 });

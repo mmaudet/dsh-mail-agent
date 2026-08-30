@@ -252,8 +252,11 @@ export const CORPUS: readonly CorpusCase[] = [
       bodyText: 'I would rather we kept the current wording.',
     }),
     expected: 'liste-diffusion',
-    decidedBy: 'static-rule',
-    because: 'List-Id (RFC 2919) names the list; a list is a list whatever it carries',
+    decidedBy: 'llm',
+    because:
+      'List-Id is on every bulk sender too — 84 messages carry it on the target '
+      + 'mailbox and 19 are list traffic — so the header is learned per list by '
+      + 'node 3 rather than asserted by a static rule',
   },
   {
     message: message({
