@@ -27,6 +27,21 @@ export interface Observation {
   readonly decidedBy: CascadeNode;
 }
 
+/**
+ * How much of a source's evidence must agree before it becomes a pattern.
+ *
+ * This was unanimity, and unanimity assumes a consistent labeller. Measured,
+ * the labeller is not: the economy model agrees with a larger one on 65% of
+ * this mailbox, so one stray verdict in eighteen destroyed a pattern. The
+ * `license-review` list is exactly that — sixteen of eighteen messages agree
+ * and the pattern was lost, taking 4.5% of the mailbox with it.
+ *
+ * 0.8 recovers it. What unanimity was actually protecting against — a
+ * colleague's varied mail becoming a rule — survives with a wide margin: on
+ * the same data the most consistent human sender reached 42%.
+ */
+export const DOMINANCE = 0.8;
+
 export interface LearnOptions {
   /**
    * How many agreeing decisions before a sender becomes a pattern.
@@ -35,6 +50,8 @@ export interface LearnOptions {
    * recurring sender from someone who wrote twice.
    */
   readonly minObservations?: number | undefined;
+  /** See {@link DOMINANCE}. 1 restores strict unanimity. */
+  readonly dominance?: number | undefined;
   /**
    * How sure a decision must be to count as evidence.
    *
@@ -79,6 +96,7 @@ export function learnPatterns(
   const minObservations = options.minObservations ?? MIN_OBSERVATIONS;
   const minConfidence = options.minConfidence ?? MIN_CONFIDENCE;
   const maxConfidence = options.maxConfidence ?? MAX_PATTERN_CONFIDENCE;
+  const dominance = options.dominance ?? DOMINANCE;
 
   // Two groupings, and the list one matters more: a mailing list's messages
   // come from many senders, so grouping them by sender scatters the evidence
@@ -108,16 +126,29 @@ export function learnPatterns(
     // The `List-Id` grouping was the right instinct applied to the other half:
     // services and lists emit one kind of message and can be learned; an
     // individual cannot.
-    if (sender.length > 0 && looksAutomated(sender)) push(bySender, sender, observation);
+    // Every sender, not only the ones whose address looks automated.
+    //
+    // That gate was a regex on the local part — `noreply`, `newsletter`,
+    // `support` — and it is the same kind of universal heuristic that has
+    // failed three times on this mailbox. Measured on 396 real verdicts it
+    // halved what could be learned: it excluded `customer-service@ovh.com`,
+    // unanimous over twenty messages, along with a tax-office correspondent, a
+    // security vendor and three cold-outreach senders. Coverage 8% with it, 16%
+    // without, for four points of agreement.
+    //
+    // What it was protecting against is a colleague getting a pattern, and
+    // unanimity already does that with a wide margin: on the same data the most
+    // consistent human sender reached 42%.
+    if (sender.length > 0) push(bySender, sender, observation);
   }
 
   const patterns: LearnedPattern[] = [];
   for (const [listId, bucket] of byList) {
-    const pattern = agree(bucket, minObservations, maxConfidence);
+    const pattern = agree(bucket, minObservations, maxConfidence, dominance);
     if (pattern !== null) patterns.push({ listId, sender: null, subjectContains: null, ...pattern });
   }
   for (const [sender, bucket] of bySender) {
-    const pattern = agree(bucket, minObservations, maxConfidence);
+    const pattern = agree(bucket, minObservations, maxConfidence, dominance);
     if (pattern !== null) patterns.push({ listId: null, sender, subjectContains: null, ...pattern });
   }
 
@@ -127,24 +158,6 @@ export function learnPatterns(
   );
 }
 
-/**
- * Whether an address looks like a service rather than a person.
- *
- * A heuristic, and deliberately a conservative one: it decides what may be
- * *learned*, so a false negative costs a model call and a false positive
- * teaches a rule about somebody's colleague. Erring towards the model is the
- * cheaper mistake.
- *
- * Mailing lists do not come through here at all — they group by `List-Id`,
- * which is a better signal than any address shape.
- */
-export function looksAutomated(sender: string): boolean {
-  const local = sender.split('@')[0] ?? '';
-  return AUTOMATED_LOCAL.test(local);
-}
-
-const AUTOMATED_LOCAL =
-  /^(?:no[-._]?reply|donotreply|ne[-.]?pas[-.]?repondre|nepasrepondre|notifications?|alerts?|news(?:letter)?s?|mailer|bounce|postmaster|support|contact|info|hello|team|billing|invoices?|accounts?|service|admin|noc|automated?|robot|bot|system|daemon)(?:[-._+].*)?$/i;
 
 function push<T>(map: Map<string, T[]>, key: string, value: T): void {
   const bucket = map.get(key);
@@ -163,13 +176,24 @@ function agree(
   bucket: readonly Observation[],
   minObservations: number,
   maxConfidence: number,
+  dominance: number,
 ): { category: MailCategory; confidence: number } | null {
   if (bucket.length < minObservations) return null;
-  const category = bucket[0]?.category;
-  if (category === undefined) return null;
-  if (!bucket.every((o) => o.category === category)) return null;
 
-  const mean = bucket.reduce((sum, o) => sum + o.confidence, 0) / bucket.length;
+  const tally = new Map<MailCategory, number>();
+  for (const o of bucket) tally.set(o.category, (tally.get(o.category) ?? 0) + 1);
+  const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  const top = ranked[0];
+  if (top === undefined) return null;
+  const [category, count] = top;
+  if (count / bucket.length < dominance) return null;
+  // The cascade's own non-answer is not a category to learn: a pattern saying
+  // "this sender is always unclassifiable" settles nothing and would stop the
+  // model ever being asked again.
+  if (category === 'needs-review') return null;
+
+  const agreeing = bucket.filter((o) => o.category === category);
+  const mean = agreeing.reduce((sum, o) => sum + o.confidence, 0) / agreeing.length;
   // Never above what the decisions themselves claimed, and never above the
   // ceiling. Volume makes a pattern eligible, not more certain.
   return { category, confidence: Math.min(mean, maxConfidence) };

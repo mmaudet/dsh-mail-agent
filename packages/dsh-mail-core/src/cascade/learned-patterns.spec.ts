@@ -180,33 +180,67 @@ describe('mailing lists, which senders cannot represent', () => {
   });
 });
 
-describe('a person is never learned', () => {
-  it('refuses a colleague, however consistent they look', () => {
+describe('what protects a colleague is their mail, not their address', () => {
+  it('refuses a source whose mail varies, which is what a person’s does', () => {
     // The other half of why 61% of a mailbox came back `important`: a
     // colleague classified that way three times became a rule answering
     // `important` for everything they ever send.
-    expect(learnPatterns(seen('jrichard@linagora.com', 'demande-interne', 5))).toEqual([]);
+    //
+    // What stops that is no longer a regex on the address. Measured over 396
+    // real verdicts, the most consistent human sender in this mailbox reached
+    // 42% on one category, well under the 80% a pattern needs; the colleagues
+    // scatter across four and five categories because their mail genuinely
+    // varies.
+    const varied = [
+      ...seen('cmcaron@linagora.com', 'rapport-compte-rendu-interne', 5),
+      ...seen('cmcaron@linagora.com', 'demande-interne', 5),
+      ...seen('cmcaron@linagora.com', 'correspondance-commerciale-client', 2),
+    ];
+    expect(learnPatterns(varied)).toEqual([]);
   });
 
-  it('learns a service under the same evidence', () => {
+  it('learns a source that keeps sending the same kind of thing', () => {
     for (const sender of [
       'no-reply@service.example',
-      'notifications@github.example',
-      'support@npmjs.example',
-      'ne-pas-repondre@acces.example',
-      'billing@stripe.example',
+      'customer-service@ovh.example',
+      'recommendations@discover.pinterest.example',
+      'franck.balestra@dgfip.finances.gouv.example',
     ]) {
       expect(learnPatterns(seen(sender, 'support-technique-ticket', 3))).toHaveLength(1);
     }
   });
 
-  it('is not fooled by a person whose name contains a service word', () => {
-    // `newsletters-noreply@` is a service; `bonoreply@` is somebody's surname.
-    expect(learnPatterns(seen('bonoreply@example.org', 'rapport-compte-rendu-interne', 5))).toEqual([]);
-    expect(learnPatterns(seen('newsletters-noreply@example.org', 'rapport-compte-rendu-interne', 5))).toHaveLength(1);
+  it('tolerates a stray verdict, because the labeller is not consistent either', () => {
+    // Sixteen of eighteen `license-review` messages agreed and strict unanimity
+    // threw the pattern away, taking 4.5% of the mailbox with it. The economy
+    // model agrees with a larger one on 65% of this mailbox; a rule that breaks
+    // on one disagreement in eighteen is a rule tuned for a labeller that does
+    // not exist.
+    const mostly = [
+      ...seen('digest@example.org', 'veille-newsletter', 16),
+      ...seen('digest@example.org', 'rapport-compte-rendu-interne', 2),
+    ];
+    const [pattern] = learnPatterns(mostly);
+    expect(pattern?.category).toBe('veille-newsletter');
   });
 
-  it('still learns a mailing list, which never goes through the address test', () => {
+  it('still refuses a source split down the middle', () => {
+    const split = [
+      ...seen('mixed@example.org', 'veille-newsletter', 5),
+      ...seen('mixed@example.org', 'demande-interne', 5),
+    ];
+    expect(learnPatterns(split)).toEqual([]);
+  });
+
+  it('never learns the cascade’s own non-answer', () => {
+    // Unanimous over thirty-one messages on the target mailbox: the contact
+    // form the economy model cannot place. A pattern saying "this sender is
+    // always unclassifiable" settles nothing and stops the model ever being
+    // asked again — the owner states a route for it instead.
+    expect(learnPatterns(seen('nple@linagora.com', 'needs-review', 31))).toEqual([]);
+  });
+
+  it('still learns a mailing list, whose senders are all different people', () => {
     const observations = Array.from({ length: 3 }, (_, i) => ({
       sender: `person${String(i)}@example.org`,
       listId: 'l.example',
