@@ -13,7 +13,8 @@
 // accumulate across runs, and a pass that started from `:memory:` would cold
 // start every time and never learn anything.
 
-import { mkdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import {
@@ -59,23 +60,65 @@ if (WRITE) {
   console.error('  every move and every deletion is `ask`, and nothing is proposed to anyone yet.\n');
 }
 
-const bearer = JSON.parse(process.env.MAIL_SENTINEL_JMAP_TOKENS).accessToken;
+// The access token lives about ten hours. A loop meant to run overnight will
+// meet its expiry, and every JMAP call then answers 401 — which without this
+// ends the process on a schedule.
+//
+// The refresh writes a new token into the env file and this re-reads it, so
+// the running process picks it up without being restarted.
+const ENV_FILE = `${process.env.HOME}/.dsh/.env`;
+let bearer = JSON.parse(process.env.MAIL_SENTINEL_JMAP_TOKENS).accessToken;
+
+function reloadToken() {
+  const line = readFileSync(ENV_FILE, 'utf8')
+    .split('\n')
+    .find((l) => l.startsWith('MAIL_SENTINEL_JMAP_TOKENS='));
+  if (line === undefined) return false;
+  const raw = line.slice('MAIL_SENTINEL_JMAP_TOKENS='.length).replace(/^'|'$/g, '');
+  const fresh = JSON.parse(raw).accessToken;
+  if (fresh === bearer) return false;
+  bearer = fresh;
+  return true;
+}
+
+function refreshToken() {
+  const result = spawnSync('python3', [`${process.cwd()}/scripts/refresh-jmap-token.py`], {
+    encoding: 'utf8',
+    env: process.env,
+  });
+  console.log(`  token refresh: ${(result.stdout || result.stderr || '').trim().slice(0, 120)}`);
+  return result.status === 0 && reloadToken();
+}
+
 let apiUrl = null;
+async function jmapCall(body) {
+  if (apiUrl === null) {
+    const s = await fetch(process.env.MAIL_SENTINEL_JMAP_SESSION_URL, {
+      headers: { authorization: `Bearer ${bearer}` },
+    });
+    if (!s.ok) return { status: s.status, json: null };
+    apiUrl = (await s.json()).apiUrl;
+  }
+  const r = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
+    body: JSON.stringify(body),
+  });
+  return { status: r.status, json: r.ok ? await r.json() : null };
+}
+
 const transport = {
   async request(body) {
-    if (apiUrl === null) {
-      const s = await fetch(process.env.MAIL_SENTINEL_JMAP_SESSION_URL, {
-        headers: { authorization: `Bearer ${bearer}` },
-      });
-      apiUrl = (await s.json()).apiUrl;
+    let attempt = await jmapCall(body);
+    if (attempt.status === 401) {
+      // The session url is cached against the old token; drop it so the
+      // rediscovery runs with the new one.
+      apiUrl = null;
+      if (!refreshToken()) throw new Error('JMAP 401 and the token could not be refreshed');
+      attempt = await jmapCall(body);
     }
-    const r = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) throw new Error(`JMAP ${r.status}`);
-    return r.json();
+    if (attempt.json === null) throw new Error(`JMAP ${attempt.status}`);
+    return attempt.json;
   },
 };
 

@@ -58,7 +58,12 @@ export interface AgentPass {
   readonly proposed: number;
   readonly failures: readonly ExecutionFailure[];
   readonly dryRun: boolean;
-  /** True when the limit stopped the pass before the changes ran out. */
+  /**
+   * True when the limit stopped the pass before the changes ran out.
+   *
+   * The rest are waiting for the next pass, not discarded: the cursor stops
+   * where the pass stopped.
+   */
   readonly truncated: boolean;
   /**
    * Messages the model could not be asked about.
@@ -141,13 +146,23 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
   // An owner moving a message is a correction, and reading that is
   // `readCorrections`'s job, not this one's: re-deciding on the owner's move
   // would silently overwrite the very disagreement worth reading.
-  const fresh = ids.filter((id) => {
+  //
+  // The limit applies to what is *examined*, not to what is classified, and
+  // the cursor then advances to exactly there. An earlier version bounded the
+  // classifying and advanced past everything the poll had reported, on the
+  // reasoning that a backlog larger than the limit would otherwise be
+  // re-polled forever. That reasoning was wrong — each pass advances past what
+  // it examined, so each pass makes progress — and what it actually did was
+  // discard mail: an agent stopped overnight would meet a backlog of two
+  // hundred, classify a hundred, and pass over the rest for good.
+  const examined = ids.slice(0, limit);
+  const truncated = ids.length > limit;
+  const fresh = examined.filter((id) => {
     const seenBefore = store.traceFor(id);
     return seenBefore === null || seenBefore.rationale.startsWith(MODEL_UNREACHABLE);
   });
-  const skipped = ids.length - fresh.length;
-  const truncated = fresh.length > limit;
-  const batch = fresh.slice(0, limit);
+  const skipped = examined.length - fresh.length;
+  const batch = fresh;
 
   const messages = await mailbox.getMessages(batch);
   const byId = new Map(messages.map((m) => [m.id, m]));
@@ -184,14 +199,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentPass> {
     failures.push(...result.failed);
   }
 
-  // The cursor advances over everything the poll reported, including what the
-  // limit deferred — otherwise a backlog larger than the limit is re-polled
-  // forever and the pass never reaches the present.
-  //
-  // What that costs is named rather than hidden: `truncated` says the deferred
-  // messages were passed over, and they are not coming back.
-  const last = changes.at(-1);
-  if (last !== undefined) store.saveCursor(folder, last.cursor);
+  // The cursor advances to the last change this pass examined, and no further.
+  // Everything after it is picked up by the next pass, which is what makes a
+  // limit a rate rather than a filter.
+  const lastExamined = examined.at(-1);
+  const boundary =
+    lastExamined === undefined
+      ? changes.at(-1)
+      : changes.filter((c) => c.id === lastExamined).at(-1);
+  if (boundary !== undefined) store.saveCursor(folder, boundary.cursor);
 
   return {
     folder,
@@ -248,7 +264,7 @@ export function describePass(pass: AgentPass): string {
       (pass.alreadyDecided > 0 ? `, ${String(pass.alreadyDecided)} already decided` : ''),
   ];
   if (pass.truncated) {
-    lines.push(`  the limit stopped this pass; the rest were passed over, not deferred`);
+    lines.push('  the limit stopped this pass; the rest wait for the next one');
   }
   lines.push(`  performed ${String(pass.performed)}   proposed ${String(pass.proposed)}   failed ${String(pass.failures.length)}`);
 
