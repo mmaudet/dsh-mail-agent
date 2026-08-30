@@ -204,7 +204,7 @@ describe('getMessages', () => {
   });
 
   it('maps a message onto the domain shape', async () => {
-    const adapter = adapterWith(transportOf(EMAIL, MAILBOXES));
+    const adapter = adapterWith(transportOf(MAILBOXES, EMAIL));
     const [message] = await adapter.getMessages(['e1']);
 
     expect(message).toMatchObject({
@@ -223,7 +223,7 @@ describe('getMessages', () => {
   });
 
   it('splits every List-Unsubscribe target (RFC 2369)', async () => {
-    const adapter = adapterWith(transportOf(EMAIL, MAILBOXES));
+    const adapter = adapterWith(transportOf(MAILBOXES, EMAIL));
     const [message] = await adapter.getMessages(['e1']);
 
     expect(message?.listUnsubscribe).toStrictEqual([
@@ -241,20 +241,17 @@ describe('getMessages', () => {
 
   it('collects x-spam headers and lowercases their names', async () => {
     const adapter = adapterWith(
-      transportOf(
-        {
-          list: [
-            {
-              id: 'e1',
-              receivedAt: '2026-08-20T10:00:00Z',
-              'header:X-Spam-Score:asText': '4.2',
-              'header:X-Spam-Status:asText': 'No',
-              'header:Subject:asText': 'not a spam header',
-            },
-          ],
-        },
-        MAILBOXES,
-      ),
+      transportOf(MAILBOXES, {
+        list: [
+          {
+            id: 'e1',
+            receivedAt: '2026-08-20T10:00:00Z',
+            'header:X-Spam-Score:asText': '4.2',
+            'header:X-Spam-Status:asText': 'No',
+            'header:Subject:asText': 'not a spam header',
+          },
+        ],
+      }),
     );
     const [message] = await adapter.getMessages(['e1']);
 
@@ -465,7 +462,7 @@ describe('headers the cascade reasons about', () => {
     // JMAP returns only the properties asked for, and the ones the cascade
     // needs cannot be named in advance: asking for a fixed list is how nodes 2
     // and 5 came to see nothing at all on a live account.
-    const transport = transportOf({
+    const transport = transportOf(MAILBOXES, {
       list: [
         {
           id: 'e1',
@@ -490,7 +487,7 @@ describe('headers the cascade reasons about', () => {
           ],
         },
       ],
-    }, MAILBOXES);
+    });
 
     const [message] = await adapterWith(transport).getMessages(['e1']);
     expect(message?.spamHeaders).toStrictEqual({
@@ -500,11 +497,28 @@ describe('headers the cascade reasons about', () => {
   });
 
   it('asks the server for the headers list', async () => {
-    const transport = transportOf({ list: [] }, MAILBOXES);
+    const transport = transportOf(MAILBOXES, { list: [] });
     await adapterWith(transport).getMessages(['e1']);
 
-    const properties = (transport.sent[0]?.methodCalls[0]?.[1] as { properties?: string[] })
+    const properties = (transport.sent[1]?.methodCalls[0]?.[1] as { properties?: string[] })
       .properties;
     expect(properties).toContain('headers');
+  });
+});
+
+describe('getMessages batching', () => {
+  it('splits a large request rather than letting the server refuse it', async () => {
+    // 200 ids answered `requestTooLarge` on the target account, well under the
+    // advertised maxObjectsInGet of 500: it is a size limit, not a count one.
+    const ids = Array.from({ length: 120 }, (_, i) => `e${String(i)}`);
+    const transport = transportOf(MAILBOXES, { list: [] }, { list: [] }, { list: [] });
+
+    await adapterWith(transport).getMessages(ids);
+
+    const gets = transport.sent.filter((b) => b.methodCalls[0]?.[0] === 'Email/get');
+    expect(gets).toHaveLength(3);
+    for (const get of gets) {
+      expect((get.methodCalls[0]?.[1] as { ids: string[] }).ids.length).toBeLessThanOrEqual(50);
+    }
   });
 });

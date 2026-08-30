@@ -38,6 +38,16 @@ export const JMAP_CORE = 'urn:ietf:params:jmap:core';
  * has drained a mailbox.
  */
 const MAX_CHANGES = 256;
+
+/**
+ * How many messages one `Email/get` asks for.
+ *
+ * Not a count limit — James advertises `maxObjectsInGet: 500` — but a size
+ * one: full bodies and headers for 200 messages answered `requestTooLarge`.
+ * Fifty keeps a batch well under it while staying one round trip for an
+ * ordinary poll.
+ */
+const GET_BATCH = 50;
 export const JMAP_MAIL = 'urn:ietf:params:jmap:mail';
 export const JMAP_SUBMISSION = 'urn:ietf:params:jmap:submission';
 
@@ -239,25 +249,34 @@ export class JmapAdapter implements MailService {
   async getMessages(ids: string[]): Promise<MailMessage[]> {
     if (ids.length === 0) return [];
 
-    const response = await this.#call(
-      [JMAP_CORE, JMAP_MAIL],
-      [
-        'Email/get',
-        {
-          accountId: this.#accountId,
-          ids,
-          properties: EMAIL_PROPERTIES,
-          fetchTextBodyValues: true,
-          fetchHTMLBodyValues: true,
-        },
-        'g0',
-      ],
-    );
-
     const folders = await this.#pathsById();
-    return asArray(readProp(response, 'list'))
-      .map((entry) => toMailMessage(entry, folders))
-      .filter(isNotNull);
+    const messages: MailMessage[] = [];
+
+    // Batched, because a whole message is a large object and a server answers
+    // `requestTooLarge` long before it reaches its own `maxObjectsInGet`.
+    // Doing it here rather than in every caller: a batch limit is a property
+    // of the wire, and the contract promises a list for a list.
+    for (let from = 0; from < ids.length; from += GET_BATCH) {
+      const response = await this.#call(
+        [JMAP_CORE, JMAP_MAIL],
+        [
+          'Email/get',
+          {
+            accountId: this.#accountId,
+            ids: ids.slice(from, from + GET_BATCH),
+            properties: EMAIL_PROPERTIES,
+            fetchTextBodyValues: true,
+            fetchHTMLBodyValues: true,
+          },
+          'g0',
+        ],
+      );
+      for (const entry of asArray(readProp(response, 'list'))) {
+        const message = toMailMessage(entry, folders);
+        if (message !== null) messages.push(message);
+      }
+    }
+    return messages;
   }
 
   watchInbox(handler: (evt: MailChange) => void): AsyncDisposable {
