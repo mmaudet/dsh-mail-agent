@@ -28,6 +28,8 @@ import type { OidcConfig } from './oidc-jmap.js';
 /** Where the pending request waits while the operator is in a browser. */
 const PENDING_REF = 'MAIL_SENTINEL_OIDC_PENDING';
 const TOKENS_REF = 'MAIL_SENTINEL_JMAP_TOKENS';
+const GMAIL_PENDING_REF = 'MAIL_SENTINEL_GMAIL_PENDING';
+const GMAIL_TOKENS_REF = 'MAIL_SENTINEL_GMAIL_TOKENS';
 
 export interface CliEnvironment {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -56,6 +58,38 @@ export function resolveConfig(env: Readonly<Record<string, string | undefined>>)
   };
 }
 
+/**
+ * The Gmail account's configuration (PRD Phase 1, third integration target).
+ *
+ * A separate provider rather than a variant of the first: different issuer,
+ * different client, different stored token, and a scope Google classes as
+ * restricted. Sharing one set of variables between two accounts is how an
+ * operator ends up authorizing the wrong mailbox.
+ */
+export function resolveGmailConfig(env: Readonly<Record<string, string | undefined>>): OidcConfig {
+  const clientId = env['MAIL_SENTINEL_GMAIL_CLIENT_ID'];
+  if (clientId === undefined || clientId.length === 0) {
+    throw new Error('MAIL_SENTINEL_GMAIL_CLIENT_ID is not set');
+  }
+  return {
+    issuer: 'https://accounts.google.com',
+    redirectUri: env['MAIL_SENTINEL_GMAIL_REDIRECT_URI'] ?? 'http://localhost',
+    clientIdRef: 'MAIL_SENTINEL_GMAIL_CLIENT_ID',
+    clientSecretRef:
+      env['MAIL_SENTINEL_GMAIL_CLIENT_SECRET'] === undefined
+        ? null
+        : 'MAIL_SENTINEL_GMAIL_CLIENT_SECRET',
+    // Full IMAP and SMTP access, which is what an XOAUTH2 connection needs.
+    // Google classes it restricted; in Testing mode that costs a consent
+    // screen warning and no verification.
+    scopes: ['https://mail.google.com/'],
+    // Google returns a refresh token only for an offline grant, and only on
+    // the first consent unless `prompt=consent` forces it every time. An
+    // unattended agent cannot rely on having caught the first one.
+    extraAuthParams: { access_type: 'offline', prompt: 'consent' },
+  };
+}
+
 export function envFilePath(env: Readonly<Record<string, string | undefined>>): string {
   return join(env['DSH_HOME'] ?? join(homedir(), '.dsh'), '.env');
 }
@@ -67,6 +101,11 @@ const USAGE = [
   '  complete <pasted>   exchange the code that came back',
   '  adopt               adopt a refresh token, read from stdin',
   '  refresh             renew the access token, no browser',
+  '',
+  '  gmail begin         the same, for the Gmail account',
+  '  gmail complete <p>  exchange the code Google sent back',
+  '  gmail refresh       renew the Gmail access token',
+  '  gmail status        what is stored for Gmail',
   '  status              what is stored, without disclosing it',
   '',
   'Configuration comes from $DSH_HOME/.env:',
@@ -83,6 +122,8 @@ export async function run(argv: readonly string[], io: CliEnvironment): Promise<
     for (const line of USAGE) io.log(line);
     return 0;
   }
+  if (command === 'gmail') return runGmail(rest, io);
+
   if (!['begin', 'complete', 'adopt', 'refresh', 'status'].includes(command)) {
     for (const line of USAGE) io.log(line);
     return 2;
@@ -190,4 +231,90 @@ export async function readStdin(): Promise<string> {
   const parts: Buffer[] = [];
   for await (const part of process.stdin) parts.push(Buffer.from(part as Buffer));
   return Buffer.concat(parts).toString('utf8');
+}
+
+
+/**
+ * The Gmail half of the same four steps.
+ *
+ * Deliberately its own command rather than a flag: the two accounts have
+ * different clients, different scopes and different stored tokens, and an
+ * operator who authorizes the wrong mailbox finds out much later.
+ */
+export async function runGmail(argv: readonly string[], io: CliEnvironment): Promise<number> {
+  const [command, ...rest] = argv;
+  if (command === undefined || !['begin', 'complete', 'refresh', 'status'].includes(command)) {
+    io.log('usage: mail-auth gmail <begin|complete|refresh|status>');
+    return 2;
+  }
+
+  const secrets = new EnvFileStore(envFilePath(io.env));
+  const bootstrap = new JmapBootstrap({
+    config: resolveGmailConfig(io.env),
+    secrets,
+    http: createHttpClient(),
+    tokensRef: GMAIL_TOKENS_REF,
+  });
+
+  switch (command) {
+    case 'begin': {
+      const pending = await bootstrap.begin();
+      await secrets.write(GMAIL_PENDING_REF, JSON.stringify(pending));
+      io.log('Open this URL, sign in as the Gmail account, then run');
+      io.log('`mail-auth gmail complete <what came back>`:');
+      io.log('');
+      io.log(pending.url);
+      io.log('');
+      io.log('A desktop client redirects to http://localhost, so the browser will show a');
+      io.log('connection error. That is expected: the code is in the address bar. Paste');
+      io.log('the whole URL.');
+      return 0;
+    }
+
+    case 'complete': {
+      const raw = rest.join(' ').trim();
+      const parsed = raw.length > 0 ? parseCallback(raw) : parseCallback(await io.readStdin());
+      if (parsed === null) {
+        io.log('Could not find a code in that. Paste the whole redirect URL.');
+        return 2;
+      }
+      const stored = await secrets.read(GMAIL_PENDING_REF);
+      if (stored === null) {
+        io.log('No pending authorization. Run `mail-auth gmail begin` first.');
+        return 2;
+      }
+      const pending = JSON.parse(stored) as PendingAuthorization;
+
+      const tokens = await bootstrap.complete(pending, parsed.code, parsed.state ?? pending.state);
+      await secrets.delete(GMAIL_PENDING_REF);
+      io.log(`Authorized. Access token valid until ${tokens.expiresAt.toISOString()}.`);
+      io.log('A refresh token is stored; the agent renews without a browser from here.');
+      return 0;
+    }
+
+    case 'refresh': {
+      const tokens = await bootstrap.refreshIfDue();
+      if (tokens === null) {
+        io.log('Nothing to renew. Run `mail-auth gmail begin`.');
+        return 1;
+      }
+      io.log(`Access token valid until ${tokens.expiresAt.toISOString()}.`);
+      return 0;
+    }
+
+    case 'status': {
+      const status = await bootstrap.status();
+      if (!status.configured) {
+        io.log('Gmail is not authorized. Run `mail-auth gmail begin`.');
+        return 1;
+      }
+      io.log(`Authorized as ${io.env['MAIL_SENTINEL_GMAIL_USER'] ?? '(user not set)'}`);
+      io.log(`Access token ${status.expired ? 'expired' : 'valid'} at ${status.expiresAt.toISOString()}`);
+      io.log(status.canRenew ? 'Renews without a browser.' : 'No refresh token: re-authorization needed.');
+      return status.expired && !status.canRenew ? 1 : 0;
+    }
+
+    default:
+      return 2;
+  }
 }

@@ -28,6 +28,16 @@ export interface OidcConfig {
    */
   readonly redirectUri: string;
   readonly scopes: readonly string[];
+  /**
+   * Extra authorization parameters, verbatim.
+   *
+   * OpenID Connect says a refresh token is requested with the
+   * `offline_access` scope; Google ignores that and wants
+   * `access_type=offline` with `prompt=consent`, and returns a refresh token
+   * exactly once per grant otherwise. Rather than special-case one provider
+   * inside the client, the difference is configuration.
+   */
+  readonly extraAuthParams?: Readonly<Record<string, string>> | undefined;
 }
 
 /** Minimal HTTP surface, injected so no test reaches the network. */
@@ -113,6 +123,9 @@ export class OidcClient {
     url.searchParams.set('state', state);
     url.searchParams.set('code_challenge', pkce.challenge);
     url.searchParams.set('code_challenge_method', pkce.method);
+    for (const [key, value] of Object.entries(this.#config.extraAuthParams ?? {})) {
+      url.searchParams.set(key, value);
+    }
 
     return { url: url.toString(), state, pkce };
   }
