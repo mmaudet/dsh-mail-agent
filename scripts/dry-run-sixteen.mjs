@@ -37,6 +37,11 @@ const arg = (n, d) => {
 
 const LIMIT = Number(arg('limit', '400'));
 const CONCURRENCY = Number(arg('concurrency', '6'));
+// 300 was a Mistral-shaped assumption. A reasoning model spends its budget
+// thinking before it emits anything — Qwen3-32B burns ~345 tokens before the
+// first character of the answer — so a cap tuned for one model silently
+// returns nothing for another, and it reads as the model failing to answer.
+const MAX_TOKENS = Number(arg('max-tokens', '300'));
 const THIRD_PARTY = args.includes('--accept-third-party');
 const SOVEREIGN = /^https:\/\/chat\.lucie\.ovh\.linagora\.com(\/|$)/;
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
@@ -127,7 +132,7 @@ function fetchOnce(options) {
     body: JSON.stringify({
       model: options.model,
       temperature: 0,
-      max_tokens: 300,
+      max_tokens: MAX_TOKENS,
       messages: [
         { role: 'system', content: options.system },
         { role: 'user', content: options.messages[0].content.map((b) => b.text).join('') },

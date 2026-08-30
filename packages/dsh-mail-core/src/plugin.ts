@@ -10,9 +10,10 @@ import type { Context } from '@deepseek-ai/cordis';
 
 import { JmapAdapter, type JmapTransport } from './adapters/jmap-adapter.js';
 import { MailboxService } from './mail-service.js';
+import { MailStore } from './store/mail-store.js';
 import * as mailPing from './tools/mail-ping.js';
 import * as classifyEmail from './tools/classify-email.js';
-import type { ClassifyEmailOptions } from './tools/classify-email.js';
+import type { ClassifyEmailOptions, OwnerState } from './tools/classify-email.js';
 import { createLlmClassifier } from './cascade/llm-classifier.js';
 import type { RoutingRule } from './cascade/types.js';
 
@@ -34,6 +35,18 @@ export interface MailCoreConfig {
    * work should not be in the model's menu.
    */
   readonly cascade?: CascadeSettings | undefined;
+  /**
+   * Where the SQLite file lives (traces, cursors, routes, learned patterns).
+   *
+   * Not an environment-variable name: a path is not a secret, and naming it
+   * one would hide it from the profile that has to be reviewed.
+   *
+   * Absent means no store, and no store means nodes 1, 2b and 3 have nothing
+   * and decline. That is a running agent with three of its seven nodes inert,
+   * so it is a deliberate configuration rather than a default worth relying
+   * on.
+   */
+  readonly storePath?: string | undefined;
 }
 
 /** What node 4 knows and which route node 6 calls (PRD sections 4.2, 3.6). */
@@ -175,7 +188,26 @@ export function apply(ctx: Context, config: MailCoreConfig): void {
   });
 
   ctx.plugin(MailboxService, adapter);
-  if (config.cascade !== undefined) ctx.plugin(classifyEmail, cascadeOptions(config.cascade, ctx));
+
+  // Opened once and read on every classification, so a route the owner adds
+  // takes effect without a restart.
+  const store = config.storePath === undefined ? undefined : new MailStore(config.storePath);
+  if (store !== undefined && config.cascade?.routes !== undefined) {
+    // The profile seeds an empty store and is ignored thereafter: the store is
+    // the record, and a stale file must not outrank a runtime edit.
+    store.seedRoutes(config.cascade.routes);
+  }
+  // `ctx.effect` is how a fiber releases what it opened; Cordis 4 has no
+  // `dispose` event to hang this on.
+  if (store !== undefined) {
+    ctx.effect(() => () => {
+      store.close();
+    });
+  }
+
+  if (config.cascade !== undefined) {
+    ctx.plugin(classifyEmail, cascadeOptions(config.cascade, ctx, store));
+  }
   // Mounted, not called: the tool declares `inject: ['tools', 'mailbox']`, and
   // a plain call runs it against this plugin's context, which injects neither.
   // The handler then fails at first use with `cannot get property "mailbox"
@@ -191,20 +223,25 @@ export function apply(ctx: Context, config: MailCoreConfig): void {
  * resolved once at mount, and so a deployment without a gateway can pass
  * `null` and get the static-only cascade the PRD describes.
  */
-function cascadeOptions(settings: CascadeSettings, ctx: Context): ClassifyEmailOptions {
+function cascadeOptions(
+  settings: CascadeSettings,
+  ctx: Context,
+  state: OwnerState | undefined,
+): ClassifyEmailOptions {
   return {
+    // What does not change between messages. Everything that does — the
+    // routes, the learned patterns, the thread's category — is read from
+    // `state` per call, and these three are the fallback for a deployment
+    // configured without a store.
     context: {
       owner: settings.owner,
       vipSenders: settings.vipSenders ?? [],
       corporateDomains: settings.corporateDomains ?? [],
-      // Seeded from the profile, then owned by the store. A tool classifying
-      // one message in isolation has no store, so it gets the seed.
       statedRoutes: settings.routes ?? [],
-      // Both are per-message facts the caller supplies; a tool that classifies
-      // one message in isolation has neither.
       threadCategory: null,
       learnedPatterns: [],
     },
+    state,
     model: createLlmClassifier({
       llm: ctx.llm,
       provider: settings.provider,
