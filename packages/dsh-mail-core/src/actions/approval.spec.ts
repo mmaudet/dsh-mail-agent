@@ -62,9 +62,11 @@ describe('what runs without asking, and only that', () => {
 
     // Written out rather than counted, so widening the policy fails this test
     // by name instead of by an off-by-one nobody reads.
+    // Only tagging. Every move and every draft was demoted to `ask` after the
+    // first dry run over a real mailbox filed a bounce and a sales enquiry out
+    // of the inbox.
     expect(auto.sort()).toStrictEqual(
       [
-        'draft:important',
         'keyword:important',
         'keyword:needs-review',
         'keyword:newsletter-notification',
@@ -74,12 +76,6 @@ describe('what runs without asking, and only that', () => {
         'keyword:spam-probable',
         'keyword:standard',
         'keyword:transactional',
-        'move:newsletter-notification',
-        'move:newsletter-promo',
-        'move:newsletter-tech',
-        'move:spam-certain',
-        'move:spam-probable',
-        'move:transactional',
       ].sort(),
     );
   });
@@ -107,11 +103,15 @@ describe('what runs without asking, and only that', () => {
 });
 
 describe('the confidence floor', () => {
-  it('holds an automatic move back to a proposal below its floor', () => {
+  it('holds a rule back to a proposal below its floor', () => {
     // Node 7 treats 0.76 and 0.98 the same. Acting on them the same is what
-    // this floor exists to prevent.
-    expect(approvalFor(DEFAULT_POLICY, 'spam-certain', 'move', 0.95)).toBe('auto');
-    expect(approvalFor(DEFAULT_POLICY, 'spam-certain', 'move', 0.85)).toBe('ask');
+    // this floor exists to prevent — and it still applies when a category is
+    // promoted back to `auto` on the evidence of its own traces.
+    const promoted: ApprovalPolicy = {
+      rules: [{ category: 'spam-certain', action: 'move', approval: 'auto', minConfidence: 0.9 }],
+    };
+    expect(approvalFor(promoted, 'spam-certain', 'move', 0.95)).toBe('auto');
+    expect(approvalFor(promoted, 'spam-certain', 'move', 0.85)).toBe('ask');
   });
 
   it('is strictest where the mistake hides mail', () => {
@@ -137,8 +137,10 @@ describe('the table can be read', () => {
     // An owner approves this text, not the source. It has to carry the two
     // facts that matter: what happens unattended, and how sure it must be.
     const described = describePolicy(DEFAULT_POLICY);
-    expect(described).toContain('move     spam-certain (confidence ≥ 0.9)');
+    expect(described).toContain('keyword  important');
     expect(described).toContain('Everything else asks first');
+    // Nothing that changes where a message lives runs unattended today.
+    expect(described).not.toContain('move');
     expect(described).not.toContain('send');
   });
 });

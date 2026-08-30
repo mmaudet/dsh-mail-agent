@@ -46,7 +46,10 @@ describe('what a category implies', () => {
 
     expect(plan.map((p) => p.action)).toStrictEqual(['keyword', 'move']);
     expect(plan[1]?.folder).toBe('Newsletters/Tech');
-    expect(automatic(plan)).toHaveLength(2);
+    // Tagged unattended, filed only with the owner's say-so: the first dry run
+    // over a real mailbox moved a bounce and a sales enquiry out of the inbox.
+    expect(automatic(plan).map((p) => p.action)).toStrictEqual(['keyword']);
+    expect(proposed(plan).map((p) => p.action)).toStrictEqual(['move']);
   });
 
   it('tags what it will not move', () => {
@@ -76,9 +79,12 @@ describe('what the owner is asked about', () => {
     expect(proposed(plan).map((p) => p.action)).toStrictEqual(['move']);
   });
 
-  it('performs the same junking when it is sure', () => {
+  it('proposes the same junking even when it is sure', () => {
+    // The floor is not what holds it back any more: no move runs unattended
+    // until a category's own traces earn it.
     const plan = planActions(trace('spam-certain', 0.95), JMAP_LIKE, DEFAULT_POLICY);
-    expect(automatic(plan).map((p) => p.action)).toStrictEqual(['keyword', 'move']);
+    expect(automatic(plan).map((p) => p.action)).toStrictEqual(['keyword']);
+    expect(proposed(plan).map((p) => p.action)).toStrictEqual(['move']);
   });
 
   it('still plans an action the policy refuses, so it can be seen', () => {

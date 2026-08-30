@@ -91,24 +91,33 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
       (category): ApprovalRule => ({ category, action: 'keyword', approval: 'auto' }),
     ),
 
-    // --- moving: automatic only for bulk the owner did not ask to see -------
-    // PRD section 4.5. Newsletters go to their folder; the owner reads them
-    // there or does not.
-    { category: 'newsletter-tech', action: 'move', approval: 'auto', minConfidence: 0.8 },
-    { category: 'newsletter-promo', action: 'move', approval: 'auto', minConfidence: 0.8 },
-    { category: 'newsletter-notification', action: 'move', approval: 'auto', minConfidence: 0.8 },
-
-    // Junk direct, per PRD 4.5 — but at a higher floor than the rest. Spam is
-    // the only automatic move that hides something the owner might want, and
-    // the classifier has been observed calling a colleague's mail spam.
-    { category: 'spam-certain', action: 'move', approval: 'auto', minConfidence: 0.9 },
-    // `spam-probable` is junked *and* listed in the weekly digest (PRD 4.5),
-    // which is what makes junking it acceptable at all.
-    { category: 'spam-probable', action: 'move', approval: 'auto', minConfidence: 0.85 },
-
-    // Transactional stays in the inbox for a day, then archives (PRD 4.5).
-    // The delay is the scheduler's; the permission is here.
-    { category: 'transactional', action: 'move', approval: 'auto', minConfidence: 0.85 },
+    // --- moving: proposed, not performed, until the traces earn it ---------
+    // PRD section 4.5 files newsletters automatically, and the first dry run
+    // over the real mailbox is why that is not the default here. Of twelve
+    // messages it would have moved six, and among the six:
+    //
+    //   "Mail delivery failed [Re: ...]"  -> newsletter-notification
+    //   "New demo request — ..."          -> newsletter-notification
+    //
+    // A bounce and a sales enquiry, both filed out of the inbox. And two
+    // messages of one mailing-list thread were classified differently from
+    // each other in the same run.
+    //
+    // A tag is reversible and visible; a move takes mail out of the place the
+    // owner looks. The measurements say the classifier settles ~70% of this
+    // mailbox and answers one colleague under five categories, so moving on
+    // its own is authority it has not earned yet.
+    //
+    // The path back to `auto` is not an opinion: `MailStore.efficiency` and the
+    // stored traces make a per-category error rate measurable, and a category
+    // whose moves have been right over a review window gets promoted on that
+    // evidence.
+    { category: 'newsletter-tech', action: 'move', approval: 'ask', minConfidence: 0.8 },
+    { category: 'newsletter-promo', action: 'move', approval: 'ask', minConfidence: 0.8 },
+    { category: 'newsletter-notification', action: 'move', approval: 'ask', minConfidence: 0.8 },
+    { category: 'spam-certain', action: 'move', approval: 'ask', minConfidence: 0.9 },
+    { category: 'spam-probable', action: 'move', approval: 'ask', minConfidence: 0.85 },
+    { category: 'transactional', action: 'move', approval: 'ask', minConfidence: 0.85 },
 
     // The three that never move on their own. `important` is the mail the
     // owner is expected to act on, `standard` is theirs to read, and
@@ -127,7 +136,9 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
 
     // --- drafting: writing is free, sending is not --------------------------
     // A draft in Drafts is a proposal the owner reads before anything leaves.
-    { category: 'important', action: 'draft', approval: 'auto' },
+    // `ask` for now on the same evidence as the moves: a reply drafted from a
+    // misclassification is a reply to the wrong message.
+    { category: 'important', action: 'draft', approval: 'ask' },
     { category: 'standard', action: 'draft', approval: 'ask' },
 
     // PRD 4.4: never sent automatically, the owner keeps 100% of the control.

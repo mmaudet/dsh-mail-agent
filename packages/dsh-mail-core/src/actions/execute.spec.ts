@@ -89,7 +89,8 @@ describe('dry run is the default', () => {
     expect(result.dryRun).toBe(true);
     expect(mailbox.calls).toStrictEqual([]);
     // And says what it would have done, which is the point of running it.
-    expect(result.performed.map((p) => p.action)).toStrictEqual(['keyword', 'move']);
+    expect(result.performed.map((p) => p.action)).toStrictEqual(['keyword']);
+    expect(result.proposed.map((p) => p.action)).toStrictEqual(['move']);
     store.close();
   });
 
@@ -102,10 +103,8 @@ describe('dry run is the default', () => {
       dryRun: false,
     });
 
-    expect(mailbox.calls).toStrictEqual([
-      'keywords:m1:$twaky-newsletter-tech',
-      'move:m1:Newsletters/Tech',
-    ]);
+    // Only the tag: no move runs unattended under the shipped policy.
+    expect(mailbox.calls).toStrictEqual(['keywords:m1:$twaky-newsletter-tech']);
     store.close();
   });
 });
@@ -151,7 +150,10 @@ describe('ordering', () => {
 
     // Handed in the wrong order on purpose: execution must not depend on the
     // caller having sorted it.
-    await executePlan(t, [...plan].reverse(), mailbox, store, { dryRun: false });
+    // Both marked automatic here, because the ordering property is about
+    // execution and not about which rules the shipped policy happens to grant.
+    const both = plan.map((p) => ({ ...p, approval: 'auto' as const }));
+    await executePlan(t, [...both].reverse(), mailbox, store, { dryRun: false });
 
     expect(mailbox.calls[0]).toContain('keywords:');
     expect(mailbox.calls[1]).toContain('move:');
@@ -164,10 +166,12 @@ describe('one failure is one message', () => {
     const mailbox = new RecordingMailbox('move');
     const store = new MailStore(':memory:');
     const t = trace('newsletter-tech');
+    const plan = planActions(t, JMAP_LIKE, DEFAULT_POLICY).map((p) => ({
+      ...p,
+      approval: 'auto' as const,
+    }));
 
-    const result = await executePlan(t, planActions(t, JMAP_LIKE, DEFAULT_POLICY), mailbox, store, {
-      dryRun: false,
-    });
+    const result = await executePlan(t, plan, mailbox, store, { dryRun: false });
 
     expect(result.performed.map((p) => p.action)).toStrictEqual(['keyword']);
     expect(result.failed).toHaveLength(1);
@@ -222,7 +226,8 @@ describe('a result can be read', () => {
     );
 
     expect(described).toContain('dry run — nothing was changed');
-    expect(described).toContain('performed : 2');
+    expect(described).toContain('performed : 1');
+    expect(described).toContain('proposed  : 1');
     store.close();
   });
 });
