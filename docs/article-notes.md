@@ -923,6 +923,57 @@ The operational consequence for anyone comparing models: **a three-point
 difference over a hundred messages is not a result.** This project's own
 benchmark should be read with that in mind.
 
+## §12 — Ce qu'on ne peut pas mettre en cache
+
+Three measurements chased why the cascade settles 10% of a repetitive-looking
+mailbox without a model call. The first blamed the measurement window, the
+second the pattern granularity. The diagnostic that finally answered was one
+line per rejected source, and it said neither.
+
+**Six of seven frequent sources yielded no pattern because the classifier
+disagreed with itself.** One support address came back under four categories
+across seven messages.
+
+A cascade cannot cache an answer that is not stable enough to cache. That is the
+sentence the whole cost argument turns on, and no amount of tuning thresholds
+would have produced it — only asking the instrument to explain its refusals.
+
+### Sharpening the prompt worked, and was not enough
+
+The prompt listed eight categories and never said where one ends. Given an
+ordered test and two boundary rules aimed at the observed disagreements, three
+sources became unanimous and the worst went from four categories to two.
+
+Then it stopped. **8 of 15 recurring sources agree with themselves, covering 19%
+of the mailbox against a 64% ceiling** — and the split is not random:
+
+| | agrees with itself |
+|---|---|
+| services and automated senders | yes |
+| mailing lists | mostly |
+| **people** | **no** |
+
+One colleague accounts for 18% of the inbox and is genuinely five categories: a
+question, a forward, a document, a note. **No prompt makes a person into a
+category, because their messages differ.**
+
+### The restraint selected for the right thing without being told to
+
+Node 3 requires unanimity before learning a source. That rule was written to
+avoid freezing a model's inconsistency. What it does in practice is learn the
+machines and refuse the humans — which is exactly correct, and nobody designed
+it that way.
+
+### The number to publish
+
+On a real inbox: static rules ~9%, learned patterns ~19% once accumulated,
+spam prefilter ~1%. **Around 70% needs the model and will keep needing it.**
+
+That is not a defect. It is what a mailbox is: mostly written by people, and
+people are not categories. Any cascade architecture pitched on "most mail never
+reaches the expensive path" should be read against that, and the corpus that
+suggested 71% had one case per node by construction.
+
 ## Still missing for the article
 
 Section 3 — "Le mode Creator comme atelier" — has **no material at all**. Every
