@@ -11,18 +11,23 @@ ran over the same 150.
 
 ## The result
 
-**137 scored. 53% exact category. 69% right band.**
-
-Thirteen messages are missing because the provider answered 429 thirteen times,
-not because anything classified them wrongly. That is a ninth of a run lost to
-rate limiting, and it is worth its own line: a classifier that cannot be
-reached is a classifier that is not deciding.
+**150 scored. 53% exact category. 69% right band.**
 
 | the owner said | classifier said `acts` | `reads` | `drops` |
 |---|---|---|---|
-| **acts** (20) | 14 | 2 | **4** |
-| **reads** (76) | **16** | 50 | **10** |
-| **drops** (41) | 1 | 10 | 30 |
+| **acts** (23) | 14 | 4 | **5** |
+| **reads** (83) | **18** | 55 | **10** |
+| **drops** (44) | 1 | 9 | 34 |
+
+The first run of this scored 137 of the 150 at 53% and 69% — the same two
+numbers — and lost thirteen messages to a third-party endpoint answering 429.
+The run above went through the sovereign gateway and lost none.
+
+That comparison is worth keeping. The endpoint the project was built against
+had an expired certificate from 30 August, so for three days every measurement
+went somewhere else and carried a banner saying so. The replacement,
+`inference.linagora.com`, serves the same model, scores identically, and
+answers every request. The detour cost 9% of a run and bought nothing.
 
 The bands are what matter. A confusion inside a band costs a folder; one across
 a band costs either an unanswered request or a message the owner never sees.
