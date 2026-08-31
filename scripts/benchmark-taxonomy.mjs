@@ -110,14 +110,14 @@ async function fetchCorpus() {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
       body: JSON.stringify({
-        using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'],
+        using,
         methodCalls,
       }),
     });
     return r.json();
   };
   const adapter = new JmapAdapter({
-    transport: { request: (b) => jmap(b.methodCalls) },
+    transport: { request: (b) => jmap(b.using, b.methodCalls) },
     accountId: ACC,
     identityId: 'x',
   });

@@ -42,7 +42,7 @@ const KEY = process.env.OPENROUTER_API_KEY;
 const ACC = process.env.MAIL_SENTINEL_JMAP_ACCOUNT_ID;
 const bearer = JSON.parse(process.env.MAIL_SENTINEL_JMAP_TOKENS).accessToken;
 let apiUrl = null;
-async function jmap(methodCalls) {
+async function jmap(using, methodCalls) {
   if (!apiUrl) {
     const s = await fetch(process.env.MAIL_SENTINEL_JMAP_SESSION_URL, { headers: { authorization: `Bearer ${bearer}` } });
     if (!s.ok) throw new Error(`session ${s.status}`);
@@ -52,7 +52,7 @@ async function jmap(methodCalls) {
     const r = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
-      body: JSON.stringify({ using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'], methodCalls }),
+      body: JSON.stringify({ using, methodCalls }),
     });
     if (r.ok) return r.json();
     if (r.status < 500 && r.status !== 499 && r.status !== 429) throw new Error(`JMAP ${r.status}`);
@@ -60,7 +60,7 @@ async function jmap(methodCalls) {
   }
   throw new Error('JMAP kept refusing');
 }
-const adapter = new JmapAdapter({ transport: { request: (b) => jmap(b.methodCalls) }, accountId: ACC, identityId: 'x' });
+const adapter = new JmapAdapter({ transport: { request: (b) => jmap(b.using, b.methodCalls) }, accountId: ACC, identityId: 'x' });
 
 async function ask(model, system, user, maxTokens = 900) {
   for (let attempt = 0; attempt < 6; attempt++) {

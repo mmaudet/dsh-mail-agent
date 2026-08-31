@@ -62,7 +62,7 @@ const bearer = JSON.parse(TOKENS).accessToken;
 // --- JMAP -------------------------------------------------------------------
 
 let apiUrl = null;
-async function jmap(methodCalls) {
+async function jmap(using, methodCalls) {
   if (apiUrl === null) {
     const session = await fetch(SESSION_URL, {
       headers: { accept: 'application/json', authorization: `Bearer ${bearer}` },
@@ -78,7 +78,7 @@ async function jmap(methodCalls) {
       authorization: `Bearer ${bearer}`,
     },
     body: JSON.stringify({
-      using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'],
+      using,
       methodCalls,
     }),
   });
@@ -88,13 +88,13 @@ async function jmap(methodCalls) {
 
 /** Unwrapped, for this script's own calls. The adapter wants the whole body. */
 async function jmapOne(methodCalls) {
-  const body = await jmap(methodCalls);
+  const body = await jmap(['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'], methodCalls);
   const [name, value] = body.methodResponses[0];
   if (name === 'error') throw new Error(`JMAP error: ${value.type}`);
   return value;
 }
 
-const transport = { request: (body) => jmap(body.methodCalls) };
+const transport = { request: (body) => jmap(body.using, body.methodCalls) };
 const adapter = new JmapAdapter({ transport, accountId: ACCOUNT_ID, identityId: 'unused' });
 
 // --- the sovereign classifier ----------------------------------------------

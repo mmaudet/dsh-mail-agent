@@ -27,7 +27,7 @@ const ACC = process.env.MAIL_SENTINEL_JMAP_ACCOUNT_ID;
 const bearer = JSON.parse(process.env.MAIL_SENTINEL_JMAP_TOKENS).accessToken;
 
 let apiUrl = null;
-async function jmap(methodCalls) {
+async function jmap(using, methodCalls) {
   if (!apiUrl) {
     const s = await fetch(process.env.MAIL_SENTINEL_JMAP_SESSION_URL, {
       headers: { authorization: `Bearer ${bearer}` },
@@ -38,7 +38,7 @@ async function jmap(methodCalls) {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
     body: JSON.stringify({
-      using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'],
+      using,
       methodCalls,
     }),
   });

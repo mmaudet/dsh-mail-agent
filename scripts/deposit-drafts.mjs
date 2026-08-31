@@ -47,7 +47,7 @@ if (IN === null) {
 const ACC = process.env.MAIL_SENTINEL_JMAP_ACCOUNT_ID;
 const bearer = JSON.parse(process.env.MAIL_SENTINEL_JMAP_TOKENS).accessToken;
 let apiUrl = null;
-async function jmap(methodCalls) {
+async function jmap(using, methodCalls) {
   if (apiUrl === null) {
     const s = await fetch(process.env.MAIL_SENTINEL_JMAP_SESSION_URL, {
       headers: { authorization: `Bearer ${bearer}` },
@@ -57,12 +57,12 @@ async function jmap(methodCalls) {
   const r = await fetch(apiUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
-    body: JSON.stringify({ using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'], methodCalls }),
+    body: JSON.stringify({ using, methodCalls }),
   });
   return r.json();
 }
 const adapter = new JmapAdapter({
-  transport: { request: (b) => jmap(b.methodCalls) },
+  transport: { request: (b) => jmap(b.using, b.methodCalls) },
   accountId: ACC,
   identityId: process.env.MAIL_SENTINEL_JMAP_IDENTITY_ID ?? 'x',
 });

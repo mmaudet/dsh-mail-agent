@@ -43,7 +43,7 @@ let apiUrl = null;
 // Checks the status before parsing. Without it a proxy answering
 // "Client Closed Request" in plain text surfaces as a JSON syntax error, which
 // sends the reader looking at the wrong layer.
-async function jmap(methodCalls) {
+async function jmap(using, methodCalls) {
   if (!apiUrl) {
     const s = await fetch(process.env.MAIL_SENTINEL_JMAP_SESSION_URL, {
       headers: { authorization: `Bearer ${bearer}` },
@@ -55,7 +55,7 @@ async function jmap(methodCalls) {
     const r = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
-      body: JSON.stringify({ using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'], methodCalls }),
+      body: JSON.stringify({ using, methodCalls }),
     });
     if (r.ok) return r.json();
     // A closed request is the server pacing a burst, not a bad question.
@@ -66,7 +66,7 @@ async function jmap(methodCalls) {
   }
   throw new Error('JMAP kept refusing');
 }
-const adapter = new JmapAdapter({ transport: { request: (b) => jmap(b.methodCalls) }, accountId: ACC, identityId: 'x' });
+const adapter = new JmapAdapter({ transport: { request: (b) => jmap(b.using, b.methodCalls) }, accountId: ACC, identityId: 'x' });
 
 const style = learnStyle(await adapter.getMessages(await adapter.messagesSince('Sent', new Date('2026-08-01'), 200)), { examples: 3 });
 if (style === null) { console.error('too few replies'); process.exit(2); }
