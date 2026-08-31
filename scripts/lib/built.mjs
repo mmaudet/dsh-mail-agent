@@ -12,12 +12,12 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const newest = (dir) => {
+const newest = (dir, suffix) => {
   let latest = 0;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) latest = Math.max(latest, newest(path));
-    else if (entry.name.endsWith('.ts')) latest = Math.max(latest, statSync(path).mtimeMs);
+    if (entry.isDirectory()) latest = Math.max(latest, newest(path, suffix));
+    else if (entry.name.endsWith(suffix)) latest = Math.max(latest, statSync(path).mtimeMs);
   }
   return latest;
 };
@@ -28,15 +28,21 @@ const newest = (dir) => {
  * @param {string} packageDir absolute path to the package being measured
  */
 export function assertBuilt(packageDir) {
-  const dist = join(packageDir, 'dist', 'index.js');
+  // The newest output, not `dist/index.js`: an incremental build rewrites only
+  // what changed, so the entry point can be older than a build that did run.
+  // Checking one file made the guard refuse a build it had just watched happen.
   let built;
   try {
-    built = statSync(dist).mtimeMs;
+    built = newest(join(packageDir, 'dist'), '.js');
   } catch {
-    console.error(`Refusing: ${dist} does not exist. Run \`npx tsc -b\` first.`);
+    console.error(`Refusing: ${join(packageDir, 'dist')} does not exist. Run \`npx tsc -b\` first.`);
     process.exit(2);
   }
-  const source = newest(join(packageDir, 'src'));
+  if (built === 0) {
+    console.error(`Refusing: ${join(packageDir, 'dist')} holds no compiled output.`);
+    process.exit(2);
+  }
+  const source = newest(join(packageDir, 'src'), '.ts');
   if (source > built) {
     const behind = Math.round((source - built) / 60000);
     console.error(`Refusing: dist is ${String(behind)} minutes older than src.`);
