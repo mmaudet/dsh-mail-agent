@@ -77,17 +77,58 @@ And the labelling page and the package had drifted on a name:
 same band, 25 of the 150 carrying it. Harmless here because it was caught, and
 the kind of thing that turns a measurement into a fiction when it is not.
 
-## What this says to do
+## Two things tried against it, and neither worked
 
-1. **`recu-transaction` scores 17%** — four of six read as
-   `obligations-administratives-echeance`. A receipt taken for a bill due, which
-   the prompt also names ("Keep vs. owe"). Three boundaries named, three
-   boundaries missed: the prompt is being read as description rather than as a
-   test.
-2. The two confusions are *between named categories*, not a failure to
-   understand the mail. That is a discrimination problem, and the thing that
-   moved a discrimination problem on this mailbox before was rewording the
-   question rather than restating the rule
-   (`docs/reviews/asking-the-right-question.md`).
-3. Rate limiting cost 9% of the run. Whatever the classifier's accuracy, the
-   agent needs an answer for every message, and thirteen have none.
+With 150 labels there is finally enough to hold half back. The odd-numbered
+messages were read for their errors; the even-numbered ones were not looked at
+until the end. On the deployed prompt the two halves score 53%/71% and
+54%/66%, so the split is not doing any work of its own.
+
+### Rewording the prompt: no effect
+
+Three changes, each from a band-crossing error in the development half and
+nothing else: the base rate stated from the owner's own distribution (15% A,
+55% B, 30% C); band A turned into a test with evidence — *point to the sentence
+that asks, and a thread about a deal is band B while the owner is only being
+kept in the loop*; and receipt-versus-bill decided on whether the money has
+already moved rather than on what the subject line calls it.
+
+On the holdout: **exact 54% → 51%, band 66% → 69%.** Three messages fixed, five
+broken. On 65 messages that is inside the noise, and the honest reading is that
+it did nothing.
+
+This is the same intervention that moved precision from 50% to 70% on the
+binary question the day before. It does not transfer. A stated base rate helps
+a model that is systematically biased one way; these errors are not a bias, they
+are adjacent categories being confused in both directions at once.
+
+### Sender memory: it would fix six errors out of sixty-four
+
+The architecture already has somewhere to put a fact a prompt cannot reason to:
+learned patterns for a sender the agent has decided about before, stated routes
+for one the owner has. So: how much of the error sits on senders that recur?
+
+**101 distinct senders for 150 messages.** Seventeen appear twice or more, and
+nine of those the owner labels consistently. Of sixty-four errors, twenty-two
+are on a recurring sender and only **six** are on one the owner is consistent
+about.
+
+This mailbox is a long tail. Sender memory is worth having — `customer-service@ovh.com`
+is eight messages of one category — and it is not where this error lives.
+
+## What the two measurements say together
+
+Of the owner's twenty band-A messages the classifier finds fourteen: 70%
+recall, and 45% precision because it calls thirty-one messages band A.
+
+The binary question — *does this ask the owner for something?* — measured on a
+different sample the day before, scores 78% recall and 70% precision.
+
+**Asking directly beats deriving it from a sixteen-way classification**, on the
+one thing the owner actually uses the agent for. The categories may still earn
+their keep for filing, where a wrong-but-adjacent answer costs a folder. For
+the queue they are a detour, and the detour loses precision.
+
+Rate limiting cost 9% of the run, thirteen messages with no answer at all. That
+is separate from every accuracy number here and larger than the difference
+between the two prompts.
