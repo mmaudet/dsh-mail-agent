@@ -36,6 +36,8 @@ const arg = (n, d) => {
 };
 
 const IN = arg('in', null);
+// Drafts the owner rewrote, newest first: [{subject, drafted, wanted}, ...]
+const REFORMULATIONS = arg('reformulations', null);
 const OUT = arg('out', null);
 const MODEL = arg('model', 'mistralai/mistral-small-3.2-24b-instruct');
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
@@ -99,6 +101,15 @@ console.error(describeStyle(style));
 console.error('');
 
 const wanted = JSON.parse(readFileSync(IN, 'utf8'));
+const reformulations = REFORMULATIONS === null ? [] : JSON.parse(readFileSync(REFORMULATIONS, 'utf8'));
+if (reformulations.length > 0) {
+  console.error(`${String(reformulations.length)} rewritten drafts carried into the prompt`);
+}
+
+// The owner's own names, so a greeting addressed to a colleague who has left
+// is not mirrored back at the sender.
+const identities = await adapter.identities();
+const ownNames = [...new Set(identities.map((i) => i.name).filter((n) => n !== null))];
 const messages = new Map((await adapter.getMessages(wanted.map((r) => r.id))).map((m) => [m.id, m]));
 
 async function ask(user) {
@@ -137,7 +148,9 @@ for (const row of wanted) {
         category: row.category ?? 'correspondance-commerciale-client',
         style,
         owner: OWNER,
+        ownNames,
         instruction: row.note,
+        reformulations,
       }),
     ),
   );

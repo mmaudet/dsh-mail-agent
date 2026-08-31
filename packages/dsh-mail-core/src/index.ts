@@ -266,3 +266,9 @@ export {
   registerOf,
   type Register,
 } from './drafts/register.js';
+
+export {
+  describeReformulations,
+  MAX_REFORMULATIONS,
+  type Reformulation,
+} from './drafts/reformulations.js';

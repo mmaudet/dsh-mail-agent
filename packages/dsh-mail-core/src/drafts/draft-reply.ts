@@ -17,6 +17,7 @@ import type { MailCategory } from '../types.js';
 import { describeStyle, type StyleProfile } from './style-profile.js';
 import { detectLanguage, languageName } from './language.js';
 import { describeRegister } from './register.js';
+import { describeReformulations, type Reformulation } from './reformulations.js';
 
 /**
  * The categories a draft is offered for.
@@ -34,6 +35,16 @@ export const DRAFTABLE: ReadonlySet<MailCategory> = new Set([
 ]);
 
 export interface DraftRequest {
+  /**
+   * Drafts the owner rewrote, newest first. Six statistical rules about how
+   * they write have been refuted; a draft they corrected has not been.
+   */
+  readonly reformulations?: readonly Reformulation[] | undefined;
+  /**
+   * The owner's own names, so a greeting can be told from one addressed to
+   * somebody else. `Identity/get` supplies them.
+   */
+  readonly ownNames?: readonly string[] | undefined;
   /**
    * Whether the draft signs off.
    *
@@ -131,10 +142,13 @@ export function renderDraftRequest(request: DraftRequest): string {
   // the owner's habits: 71 of their 148 greetings carry a name, which is
   // neither a habit nor its absence. What decides it is whether the
   // correspondent named them first.
-  const register = describeRegister(message);
+  const register = describeRegister(message, request.ownNames ?? []);
+  const rewritten = describeReformulations(request.reformulations ?? []);
 
   return [
     describeStyle(request.style, { signs: request.signs ?? true }),
+    rewritten === null ? null : '',
+    rewritten,
     '',
     '---',
     '',

@@ -9,9 +9,19 @@
  * "Bonjour," to people who did not.
  *
  * So this is not learned from the owner at all. It is read off the message
- * being answered, one message at a time: how the correspondent opened, and
- * whether they used tu or vous. A reply that mirrors both reads like a reply;
- * one that guesses reads like a form letter.
+ * being answered, one message at a time.
+ *
+ * The register — tu or vous — mirrors cleanly. The greeting does not, and the
+ * first version of this got it wrong: a message opening "Bonjour M. Forest,"
+ * produced "Bonjour Monsieur Rini,", because the correspondent had written to
+ * a colleague who has since left and the reply copied the *shape* of a
+ * greeting addressed to somebody else. The owner asked for "Bonjour,".
+ *
+ * Nor is it predictable from acquaintance. Over 900 sent messages they name a
+ * first contact 63% of the time and someone they have written to before 40% —
+ * the opposite of the obvious guess, and no signal either way. So the name is
+ * carried only when the correspondent greeted *the owner* by name, which is
+ * the one case where mirroring is a fact rather than an inference.
  */
 
 import type { MailMessage } from '../types.js';
@@ -74,16 +84,49 @@ export function registerOf(message: MailMessage): Register | null {
   return tu > vous ? 'tu' : 'vous';
 }
 
+/**
+ * Whether the greeting names the owner rather than a third party.
+ *
+ * The case that made this necessary: a message to a colleague who has left,
+ * still opening with that colleague's surname, answered by the owner.
+ */
+export function greetsOwner(greeting: string, ownNames: readonly string[]): boolean {
+  const words = greeting
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .match(/[a-z-]{3,}/g);
+  if (words === null || words.length < 2) return false;
+  // Both halves of a compound name and the whole: "Michel-Marie" is greeted
+  // as "Michel" about as often as in full.
+  const parts = new Set(
+    ownNames.flatMap((n) =>
+      n
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z-]+/)
+        .flatMap((w) => [w, ...w.split('-')])
+        .filter((w) => w.length >= 3),
+    ),
+  );
+  // The first word is the greeting itself; anything after it is the name.
+  return words.slice(1).some((w) => w.split('-').some((part) => parts.has(part)) || parts.has(w));
+}
+
 /** The two facts, as the prompt states them. `null` when there are none. */
-export function describeRegister(message: MailMessage): string | null {
+export function describeRegister(message: MailMessage, ownNames: readonly string[] = []): string | null {
   const greeting = greetingOf(message);
   const register = registerOf(message);
   if (greeting === null && register === null) return null;
   const lines: string[] = [];
   if (greeting !== null) {
     lines.push(
-      `They opened with "${greeting}". Open the reply the same way, naming them` +
-        ' if they named you and staying formal if they were formal.',
+      greetsOwner(greeting, ownNames)
+        ? `They opened with "${greeting}", naming the owner. Open the reply the` +
+          ' same way, naming them back and matching how formal they were.'
+        : `They opened with "${greeting}". Open with a bare greeting — "Bonjour,"` +
+          ' — and do not name them: that line names somebody else, or nobody.',
     );
   }
   if (register !== null) {

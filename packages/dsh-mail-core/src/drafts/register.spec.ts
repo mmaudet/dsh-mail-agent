@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { MailMessage } from '../types.js';
-import { describeRegister, greetingOf, registerOf } from './register.js';
+import { describeRegister, greetingOf, greetsOwner, registerOf } from './register.js';
 
 function msg(bodyText: string | null, preview = ''): MailMessage {
   return {
@@ -84,6 +84,35 @@ describe('tu or vous, from what they wrote', () => {
 
   it('says nothing rather than pick a side on a tie', () => {
     expect(registerOf(msg('tu vous'))).toBe(null);
+  });
+});
+
+describe('a greeting naming somebody else is not an invitation to name back', () => {
+  const OWN = ['Michel-Marie MAUDET', 'mmaudet'];
+
+  it('recognises the owner in the greeting', () => {
+    expect(greetsOwner('Bonjour Michel-Marie,', OWN)).toBe(true);
+    expect(greetsOwner('Bonjour Michel,', ['Michel-Marie MAUDET'])).toBe(true);
+    expect(greetsOwner('Hello Maudet', OWN)).toBe(true);
+  });
+
+  it('does not mistake a colleague for the owner', () => {
+    // The real case: a message to Léopold Forest, who has left, answered by
+    // the owner. Mirroring produced "Bonjour Monsieur Rini," and the owner
+    // asked for "Bonjour,".
+    expect(greetsOwner('Bonjour M. Forest,', OWN)).toBe(false);
+    expect(greetsOwner('Bonjour,', OWN)).toBe(false);
+  });
+
+  it('tells the draft to stay bare in that case', () => {
+    const text = describeRegister(msg('Bonjour M. Forest,\n\nPouvez-vous prévoir une visio ?'), OWN) ?? '';
+    expect(text).toContain('bare greeting');
+    expect(text).toContain('do not name them');
+  });
+
+  it('tells it to name them back when it was them', () => {
+    const text = describeRegister(msg('Bonjour Michel-Marie,\n\nPeux-tu regarder ?'), OWN) ?? '';
+    expect(text).toContain('naming the owner');
   });
 });
 
