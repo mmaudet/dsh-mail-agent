@@ -33,6 +33,16 @@ export const DRAFTABLE: ReadonlySet<MailCategory> = new Set([
 ]);
 
 export interface DraftRequest {
+  /**
+   * Whether the draft signs off.
+   *
+   * True by default, and that default is measured rather than assumed: of 49
+   * replies this owner sent, 40 carry the `-- ` separator that means their
+   * account appended a signature block, and 27 end with their own name *above*
+   * it. They sign, and then the block follows. Set false only for an owner
+   * whose Sent folder says otherwise.
+   */
+  readonly signs?: boolean | undefined;
   readonly message: MailMessage;
   readonly category: MailCategory;
   readonly style: StyleProfile;
@@ -88,6 +98,9 @@ export const DRAFT_SYSTEM_PROMPT = [
   '4. Match the length below. These replies are short. A long draft is not more',
   '   helpful; it is more to delete.',
   '5. Write as the owner, in the first person, never about them.',
+  '6. Sign off the way they do, with the short form above. Their full',
+  '   signature block is appended afterwards from their mail account; it does',
+  '   not replace the closing line, it follows it.',
   '',
   'How the owner writes:',
 ].join('\n');
@@ -111,7 +124,7 @@ export function renderDraftRequest(request: DraftRequest): string {
   const language = detectLanguage(message.bodyText ?? message.preview);
 
   return [
-    describeStyle(request.style),
+    describeStyle(request.style, { signs: request.signs ?? true }),
     '',
     '---',
     '',

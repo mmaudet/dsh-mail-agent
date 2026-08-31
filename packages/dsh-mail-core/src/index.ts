@@ -247,3 +247,11 @@ export {
   quoted,
   MAX_QUOTED_CHARS,
 } from './drafts/quote.js';
+
+export {
+  signatureOf,
+  htmlToText,
+  withSignature,
+  SEPARATOR,
+  type SignatureSource,
+} from './drafts/signature.js';

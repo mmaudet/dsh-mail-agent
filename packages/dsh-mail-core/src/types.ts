@@ -392,6 +392,23 @@ export interface Capabilities {
 // Outgoing mail
 // ---------------------------------------------------------------------------
 
+/**
+ * An address the owner can send from, as the server holds it.
+ *
+ * The distinction this carries is one nothing in a message can: `vente@` and
+ * `expertise-libre@` deliver to this mailbox and are not identities, while
+ * `michel.maudet@` is. Which addresses are the owner and which are lists they
+ * sit on is a fact the account already states.
+ */
+export interface MailIdentity {
+  readonly id: string;
+  readonly email: string;
+  readonly name: string | null;
+  /** Plain-text signature, often empty even when the HTML one is not. */
+  readonly textSignature: string;
+  readonly htmlSignature: string;
+}
+
 export interface DraftMessage {
   readonly to: readonly MailAddress[];
   readonly cc: readonly MailAddress[];

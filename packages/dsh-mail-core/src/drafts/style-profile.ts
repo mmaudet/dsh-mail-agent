@@ -168,12 +168,24 @@ function wordCount(text: string): number {
 }
 
 /** The profile as the owner would read it, and as the prompt states it. */
-export function describeStyle(profile: StyleProfile): string {
+export interface DescribeStyleOptions {
+  /**
+   * Whether the draft signs itself.
+   *
+   * False when the owner's signature is appended from their mail account
+   * afterwards: telling the model how they sign and then forbidding it to sign
+   * is a contradiction the model resolves by signing.
+   */
+  readonly signs?: boolean | undefined;
+}
+
+export function describeStyle(profile: StyleProfile, options: DescribeStyleOptions = {}): string {
+  const signs = options.signs ?? true;
   const lines = [
     `Replies run about ${String(profile.medianWords)} words; a quarter are ${String(profile.shortWords)} or fewer.`,
     `They open with ${profile.openings.map((o) => `"${o}"`).join(' or ')}` +
       (profile.addressesByName ? ", usually followed by the correspondent's first name." : '.'),
-    `They are signed "${profile.signOff}".`,
+    signs ? `They are signed "${profile.signOff}".` : null,
     `They are written in ${profile.languages.join(' or ')}, matching the message being answered.`,
     `Drawn from ${String(profile.sampledFrom)} replies.`,
   ];
@@ -183,5 +195,5 @@ export function describeStyle(profile: StyleProfile): string {
       lines.push('---', example);
     }
   }
-  return lines.join('\n');
+  return lines.filter((line): line is string => line !== null).join('\n');
 }

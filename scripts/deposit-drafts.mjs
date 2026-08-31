@@ -22,6 +22,8 @@ import {
   JmapAdapter,
   detectLanguage,
   withQuotedThread,
+  withSignature,
+  signatureOf,
 } from '../packages/dsh-mail-core/dist/index.js';
 
 import { assertBuilt } from './lib/built.mjs';
@@ -66,6 +68,19 @@ const adapter = new JmapAdapter({
   accountId: ACC,
   identityId: process.env.MAIL_SENTINEL_JMAP_IDENTITY_ID ?? 'x',
 });
+
+// The owner's signature, from where they already keep it: their identity on
+// the server, which is what their other clients read. A copy in this repo
+// would be a second phone number to keep in step with the first.
+const identities = await adapter.identities();
+const mine =
+  identities.find((i) => i.id === process.env.MAIL_SENTINEL_JMAP_IDENTITY_ID) ?? identities[0];
+const signature = mine === undefined ? null : signatureOf(mine);
+console.log(
+  signature === null
+    ? 'no signature on the identity; drafts will carry none'
+    : `signature: ${String(signature.split('\n').length)} lines from ${mine.email}`,
+);
 
 let done = {};
 try {
@@ -115,7 +130,7 @@ for (const row of batch) {
     to: [sender],
     cc: [],
     subject,
-    bodyText: withQuotedThread(row.text, original, language),
+    bodyText: withQuotedThread(withSignature(row.text, signature), original, language),
     inReplyTo: original.messageId,
     references,
   });

@@ -18,6 +18,7 @@ import {
   type DraftMessage,
   type FolderRole,
   type MailAddress,
+  type MailIdentity,
   type MailChange,
   type MailFolder,
   type MailMessage,
@@ -396,6 +397,40 @@ export class JmapAdapter implements MailService {
     await this.#update(id, { keywords: map });
   }
 
+  /**
+   * Every address the owner can send from, with its signature.
+   *
+   * `Identity/get` needs the submission capability; a server without it
+   * answers an error, and this reports an empty list rather than failing a
+   * caller that only wanted to know who the owner is.
+   */
+  async identities(): Promise<MailIdentity[]> {
+    let response: unknown;
+    try {
+      response = await this.#call(
+        [JMAP_CORE, JMAP_MAIL, JMAP_SUBMISSION],
+        ['Identity/get', { accountId: this.#accountId, ids: null }, 'i0'],
+      );
+    } catch {
+      return [];
+    }
+    const list = asArray(readProp(response, 'list'));
+    const identities: MailIdentity[] = [];
+    for (const entry of list) {
+      const email = asString(readProp(entry, 'email'));
+      const id = asString(readProp(entry, 'id'));
+      if (email === null || id === null) continue;
+      identities.push({
+        id,
+        email,
+        name: asString(readProp(entry, 'name')),
+        textSignature: asString(readProp(entry, 'textSignature')) ?? '',
+        htmlSignature: asString(readProp(entry, 'htmlSignature')) ?? '',
+      });
+    }
+    return identities;
+  }
+
   async createDraft(msg: DraftMessage): Promise<string> {
     const draftsId = await this.#folderId('Drafts');
     // A draft with no From opens in the client with an empty sender. Some fill
@@ -508,20 +543,10 @@ export class JmapAdapter implements MailService {
    */
   async #identityAddress(): Promise<MailAddress | null> {
     if (this.#identity !== null) return this.#identity;
-    let response: unknown;
-    try {
-      response = await this.#call(
-        [JMAP_CORE, JMAP_MAIL, JMAP_SUBMISSION],
-        ['Identity/get', { accountId: this.#accountId, ids: [this.#identityId] }, 'i0'],
-      );
-    } catch {
-      return null;
-    }
-    const list = readProp(response, 'list');
-    const first: unknown = Array.isArray(list) ? (list as readonly unknown[])[0] : undefined;
-    const email = asString(readProp(first, 'email'));
-    if (email === null) return null;
-    this.#identity = { name: asString(readProp(first, 'name')), email };
+    const all = await this.identities();
+    const mine = all.find((identity) => identity.id === this.#identityId) ?? all[0];
+    if (mine === undefined) return null;
+    this.#identity = { name: mine.name, email: mine.email };
     return this.#identity;
   }
 
