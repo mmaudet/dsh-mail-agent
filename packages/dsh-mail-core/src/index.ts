@@ -272,3 +272,16 @@ export {
   MAX_REFORMULATIONS,
   type Reformulation,
 } from './drafts/reformulations.js';
+
+export {
+  critique,
+  parseFindings,
+  renderCritique,
+  renderRevision,
+  CRITIQUE_SYSTEM_PROMPT,
+  MAX_ROUNDS,
+  type CritiqueOptions,
+  type Finding,
+  type FindingKind,
+  type RefineResult,
+} from './drafts/critique.js';
