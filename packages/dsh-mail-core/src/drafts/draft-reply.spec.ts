@@ -211,6 +211,30 @@ describe('a draft is material to edit, not a message to send', () => {
   });
 });
 
+describe('the draft names what it defers', () => {
+  it('lists the asks and requires each to be addressed', () => {
+    const rendered = renderDraftRequest(
+      request({ asked: ['une visio de 30 minutes', 'les statistiques d’usage'], instruction: 'dire que Gilles reprend' }),
+    );
+    expect(rendered).toContain('This message asks:');
+    expect(rendered).toContain('- une visio de 30 minutes');
+    expect(rendered).toContain('Address each one');
+  });
+
+  it('forbids answering one by inventing the answer', () => {
+    // The critique loop failed on exactly this: three rounds asking for an
+    // answer the instruction never contained.
+    const rendered = renderDraftRequest(request({ asked: ['une visio'] }));
+    expect(rendered).toContain('never invent');
+    expect(rendered).toContain('not a commitment');
+  });
+
+  it('says nothing when the message asks nothing', () => {
+    expect(renderDraftRequest(request({ asked: [] }))).not.toContain('This message asks');
+    expect(renderDraftRequest(request({ asked: ['  '] }))).not.toContain('This message asks');
+  });
+});
+
 describe('what the draft may commit to', () => {
   it('permits committing only what the instruction says', () => {
     expect(DRAFT_SYSTEM_PROMPT).toContain('only thing you may commit to on their behalf');

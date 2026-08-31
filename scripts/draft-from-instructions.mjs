@@ -38,6 +38,8 @@ const arg = (n, d) => {
 const IN = arg('in', null);
 // Drafts the owner rewrote, newest first: [{subject, drafted, wanted}, ...]
 const REFORMULATIONS = arg('reformulations', null);
+// What each message asks, from scripts/what-is-asked.mjs
+const ASKED = arg('asked', null);
 const OUT = arg('out', null);
 const MODEL = arg('model', 'mistralai/mistral-small-3.2-24b-instruct');
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
@@ -102,6 +104,9 @@ console.error('');
 
 const wanted = JSON.parse(readFileSync(IN, 'utf8'));
 const reformulations = REFORMULATIONS === null ? [] : JSON.parse(readFileSync(REFORMULATIONS, 'utf8'));
+const asked = new Map(
+  ASKED === null ? [] : JSON.parse(readFileSync(ASKED, 'utf8')).map((r) => [r.id, r.asks]),
+);
 if (reformulations.length > 0) {
   console.error(`${String(reformulations.length)} rewritten drafts carried into the prompt`);
 }
@@ -150,6 +155,7 @@ for (const row of wanted) {
         owner: OWNER,
         ownNames,
         instruction: row.note,
+        asked: asked.get(row.id) ?? [],
         reformulations,
       }),
     ),

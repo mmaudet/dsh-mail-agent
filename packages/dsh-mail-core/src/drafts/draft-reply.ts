@@ -36,6 +36,14 @@ export const DRAFTABLE: ReadonlySet<MailCategory> = new Set([
 
 export interface DraftRequest {
   /**
+   * What the message asks, one line each, from `whatIsAsked`.
+   *
+   * Naming them is quoting, not inventing, and it is the one thing a draft can
+   * add without leaving what the owner said: a reply that defers three
+   * questions should say which three.
+   */
+  readonly asked?: readonly string[] | undefined;
+  /**
    * Drafts the owner rewrote, newest first. Six statistical rules about how
    * they write have been refuted; a draft they corrected has not been.
    */
@@ -148,6 +156,7 @@ export function renderDraftRequest(request: DraftRequest): string {
   // correspondent named them first.
   const register = describeRegister(message, request.ownNames ?? []);
   // Never the correction made on this very message: that is replay.
+  const asked = (request.asked ?? []).filter((a) => a.trim() !== '');
   const rewritten = describeReformulations(
     request.reformulations ?? [],
     undefined,
@@ -171,6 +180,13 @@ export function renderDraftRequest(request: DraftRequest): string {
     `Subject: ${message.subject}`,
     register === null ? null : '',
     register,
+    asked.length === 0 ? null : '',
+    asked.length === 0
+      ? null
+      : ['This message asks:', ...asked.map((a) => `- ${a}`),
+         'Address each one. Where the instruction does not answer it, say so —',
+         'that it will come separately, or who is taking it — and never invent',
+         'the answer. Naming what you are deferring is not a commitment.'].join('\n'),
     '',
     body,
     ...(told
