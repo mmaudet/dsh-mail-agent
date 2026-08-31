@@ -135,6 +135,10 @@ importers:
         version: 4.1.11(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1))
 
   packages/dsh-mail-digest:
+    dependencies:
+      '@dsh-mail-agent/mail-core':
+        specifier: workspace:*
+        version: link:../dsh-mail-core
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

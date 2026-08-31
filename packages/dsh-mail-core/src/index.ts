@@ -10,12 +10,14 @@ export const BUNDLE_ID = '@dsh-mail-agent/mail-core' as const;
 export type BundleId = typeof BUNDLE_ID;
 
 export {
+  bandOf,
   decodeCursor,
   encodeCursor,
   knownKeywords,
   sentinelKeyword,
   toMailCategory,
   type Capabilities,
+  type CategoryBand,
   type DraftMessage,
   type Envelope,
   type FolderRole,
@@ -24,6 +26,7 @@ export {
   type MailChange,
   type MailChangeKind,
   type MailFolder,
+  type MailIdentity,
   type MailKeyword,
   type MailMessage,
   type MailboxCursor,
