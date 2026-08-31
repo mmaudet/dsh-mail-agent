@@ -88,13 +88,13 @@ describe("the owner's instruction is what to say", () => {
     expect(rendered.indexOf('lui dire de venir à 9h')).toBeGreaterThan(
       rendered.indexOf('À quelle heure'),
     );
-    expect(rendered).toContain('The owner says to answer this, in their words:');
+    expect(rendered).toContain('The owner says to answer this');
   });
 
   it('says what the category is when there is no instruction', () => {
     const rendered = renderDraftRequest(request());
     expect(rendered).toContain('classified demande-interne');
-    expect(rendered).not.toContain('in their words');
+    expect(rendered).not.toContain('The owner says to answer this');
   });
 
   it('treats blank or whitespace as no instruction at all', () => {
@@ -129,6 +129,39 @@ describe('the instruction outranks the taxonomy, and only there', () => {
   it('still offers a draft unprompted for a category that warrants one', async () => {
     const draft = await draftReply(request(), saying('Bonjour, à 9h. Michel-Marie'));
     expect(draft?.because).toBe('demande-interne: the owner is expected to answer this');
+  });
+});
+
+describe('the reply language is stated, not left to a rule', () => {
+  it('names the language of an English message even when the instruction is French', () => {
+    // The defect the owner found: two of thirteen real drafts came back in
+    // French because the French instruction is the last thing before the
+    // answer, and a rule five lines up loses to it.
+    const english = msg({
+      bodyText: 'Hello Michel-Marie, thanks for your message. Could you please confirm the slot with your team?',
+    });
+    const rendered = renderDraftRequest(
+      request({ message: english, instruction: 'lui dire que Christelle proposera un créneau' }),
+    );
+    expect(rendered).toContain('Write the reply in English.');
+    expect(rendered).toContain('not necessarily in English; the reply must be.');
+  });
+
+  it('names French for a French message', () => {
+    expect(renderDraftRequest(request({ instruction: 'confirmer' }))).toContain(
+      'Write the reply in French.',
+    );
+  });
+
+  it('names nothing when the message is too short to tell', () => {
+    // Silence restores the general rule; a confident wrong answer overrides it.
+    const rendered = renderDraftRequest(request({ message: msg({ bodyText: 'ok', preview: 'ok' }) }));
+    expect(rendered).not.toContain('Write the reply in');
+  });
+
+  it('tells the model the instruction may be in another language', () => {
+    expect(DRAFT_SYSTEM_PROMPT).toContain('never the language it says it in');
+    expect(DRAFT_SYSTEM_PROMPT).toContain('When a language is named below');
   });
 });
 

@@ -232,3 +232,11 @@ export {
   ASKS_SYSTEM_PROMPT,
   type AsksOptions,
 } from './queue/asks.js';
+
+export {
+  detectLanguage,
+  languageName,
+  unquoted,
+  SAMPLE_CHARS,
+  type ReplyLanguage,
+} from './drafts/language.js';

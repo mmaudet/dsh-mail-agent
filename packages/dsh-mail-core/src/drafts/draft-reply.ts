@@ -15,6 +15,7 @@
 import type { MailMessage } from '../types.js';
 import type { MailCategory } from '../types.js';
 import { describeStyle, type StyleProfile } from './style-profile.js';
+import { detectLanguage, languageName } from './language.js';
 
 /**
  * The categories a draft is offered for.
@@ -71,7 +72,10 @@ export const DRAFT_SYSTEM_PROMPT = [
   '',
   'Rules, in order of how badly breaking them shows:',
   '',
-  '1. Answer in the language the message you are replying to is written in.',
+  '1. Answer in the language of the message you are replying to. The owner',
+  '   writes their instruction in their own language whatever the',
+  '   correspondent\'s: follow what it says, never the language it says it in.',
+  '   When a language is named below, that one is the answer, not this rule.',
   '2. Never invent a fact. Not a date, a price, a name, a commitment, or an',
   '   attachment. If answering properly needs something only the owner knows,',
   '   leave a bracketed gap — [date] — rather than filling it. A draft with a',
@@ -102,11 +106,17 @@ export function renderDraftRequest(request: DraftRequest): string {
   // because a model asked to hold a rule across four thousand characters of
   // somebody else's prose holds it less well than one reminded of it at the end.
   const told = instruction !== undefined && instruction.trim() !== '';
+  // A fact rather than a rule. The rule was already there and lost, twice out
+  // of thirteen, to a French instruction sitting immediately above the answer.
+  const language = detectLanguage(message.bodyText ?? message.preview);
+
   return [
     describeStyle(request.style),
     '',
     '---',
     '',
+    language === null ? null : `Write the reply in ${languageName(language)}.`,
+    language === null ? null : '',
     told
       ? 'Draft the owner\'s reply to the message below. What to say is at the end.'
       : `This message has been classified ${request.category}, meaning the owner is\nexpected to act on it. Draft their reply.`,
@@ -116,9 +126,21 @@ export function renderDraftRequest(request: DraftRequest): string {
     '',
     body,
     ...(told
-      ? ['', '---', '', 'The owner says to answer this, in their words:', '', instruction.trim()]
+      ? [
+          '',
+          '---',
+          '',
+          language === null
+            ? 'The owner says to answer this, in their words:'
+            : 'The owner says to answer this. Their words below are not necessarily in ' +
+              `${languageName(language)}; the reply must be.`,
+          '',
+          instruction.trim(),
+        ]
       : []),
-  ].join('\n');
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n');
 }
 
 /** Removes what a model adds around a reply it was asked to write bare. */
