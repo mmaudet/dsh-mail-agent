@@ -174,7 +174,7 @@ export function summarizePeriod(input: DigestInput, period: Period): Digest {
   const sent = within(input.sent, period);
 
   const received = new Set(messages.map((m) => m.messageId).filter((id): id is string => id !== null));
-  const answered = sent.filter((reply) => reply.inReplyTo.some((id) => received.has(id))).length;
+  const answered = sent.filter((r: Envelope) => r.inReplyTo.some((id: string) => received.has(id))).length;
 
   const decided = new Map(input.decisions.map((d) => [d.messageId, d]));
   const byBand: Record<CategoryBand, number> = { acts: 0, reads: 0, drops: 0 };
@@ -189,12 +189,12 @@ export function summarizePeriod(input: DigestInput, period: Period): Digest {
       continue;
     }
     classified += 1;
-    const band = bandOf(decision.category);
     // `bandOf` is total over the category union, and the record came from a
     // store rather than from the type system: a row written by an older
     // version carries a category this one has never heard of.
+    const band: CategoryBand | undefined = bandOf(decision.category);
     if (band === undefined) continue;
-    byBand[band] += 1;
+    byBand[band] = (byBand[band] ?? 0) + 1;
     if (!decision.usedModel) settledWithoutModel += 1;
   }
 
