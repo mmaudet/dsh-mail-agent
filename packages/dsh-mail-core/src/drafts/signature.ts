@@ -28,6 +28,18 @@ export interface SignatureSource {
  */
 export const SEPARATOR = '-- ';
 
+/**
+ * Closing formulas, which a signature block should not carry.
+ *
+ * This owner's stored signature opens with "Très cordialement," and their real
+ * replies do not: they write their own closing above the separator and the
+ * block below it starts at their name. Left in, the draft reads
+ * "…Michel-Marie / Très cordialement, / -- / Michel-Marie MAUDET" — a closing
+ * after the name, which is the one arrangement nobody writes.
+ */
+const CLOSING =
+  /^(tr[eè]s\s+)?(cordialement|bien\s+(à|a)\s+(vous|toi)|bien\s+cordialement|amicalement|sinc[eè]rement|best\s+regards|kind\s+regards|regards|cheers|cdt)\b[\s,.!]*$/i;
+
 const ENTITIES: Readonly<Record<string, string>> = {
   '&nbsp;': ' ',
   '&amp;': '&',
@@ -60,9 +72,22 @@ export function htmlToText(html: string): string {
  * `textSignature` wins when it is set — it is what the owner typed for plain
  * text — and the HTML is only a fallback.
  */
+/** Drops a closing formula from the top of a signature block. */
+export function withoutClosing(signature: string): string {
+  const lines = signature.split('\n');
+  let start = 0;
+  while (start < lines.length && (lines[start]?.trim() === '' || CLOSING.test(lines[start] ?? ''))) {
+    start += 1;
+  }
+  return lines.slice(start).join('\n').trim();
+}
+
 export function signatureOf(identity: SignatureSource): string | null {
   const text = (identity.textSignature ?? '').trim();
-  const derived = text === '' ? htmlToText(identity.htmlSignature ?? '') : text;
+  const raw = text === '' ? htmlToText(identity.htmlSignature ?? '') : text;
+  // The draft writes its own closing; the block is the owner's name and
+  // coordinates, and nothing above them.
+  const derived = withoutClosing(raw);
   if (derived === '') return null;
   // A signature that already carries a separator keeps its own placement;
   // otherwise one is added, because without it every reply in the thread

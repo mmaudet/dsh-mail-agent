@@ -165,10 +165,42 @@ describe('the reply language is stated, not left to a rule', () => {
   });
 });
 
+describe('the reply is addressed the way the message was', () => {
+  it('shows the greeting the correspondent used, verbatim', () => {
+    // The deposited draft opened "Bonjour," to a message that opened
+    // "Bonjour M. Forest,". The profile could not fix it: the owner names
+    // their correspondent 71 times in 148, which averages to nothing.
+    const asked = msg({ bodyText: 'Bonjour M. Forest,\n\nPouvez-vous prévoir une visio ?' });
+    const rendered = renderDraftRequest(request({ message: asked, instruction: 'proposer un créneau' }));
+    expect(rendered).toContain('They opened with "Bonjour M. Forest,"');
+    expect(rendered).toContain('"vous"');
+  });
+
+  it('carries tu when they wrote tu', () => {
+    const familiar = msg({ bodyText: 'Salut,\n\nTu peux regarder ton agenda pour ta dispo ?' });
+    expect(renderDraftRequest(request({ message: familiar }))).toContain('"tu"');
+  });
+
+  it('says nothing when the message gives nothing to mirror', () => {
+    const bare = msg({ bodyText: 'Ci-joint le document.', preview: 'Ci-joint le document.' });
+    expect(renderDraftRequest(request({ message: bare }))).not.toContain('They opened with');
+  });
+});
+
 describe('what the draft may commit to', () => {
   it('permits committing only what the instruction says', () => {
     expect(DRAFT_SYSTEM_PROMPT).toContain('only thing you may commit to on their behalf');
-    expect(DRAFT_SYSTEM_PROMPT).toContain('Say that and stop');
+  });
+
+  it('asks the draft to answer the question it was sent, not beside it', () => {
+    // A deposited draft executed the instruction — a colleague is taking over
+    // — and never mentioned the thirty-minute call the message had asked for.
+    expect(DRAFT_SYSTEM_PROMPT).toContain('Connect it to what they');
+    expect(DRAFT_SYSTEM_PROMPT).toContain('Answering beside the question');
+  });
+
+  it('still forbids adding anything the instruction does not carry', () => {
+    expect(DRAFT_SYSTEM_PROMPT).toContain('add nothing the instruction does not contain');
   });
 
   it('still forbids inventing a fact, instruction or not', () => {
@@ -176,8 +208,8 @@ describe('what the draft may commit to', () => {
   });
 
   it('withholds every commitment when nobody instructed anything', () => {
-    expect(DRAFT_SYSTEM_PROMPT).toContain('With no instruction');
-    expect(DRAFT_SYSTEM_PROMPT).toContain('may not accept, commit, quote a price');
+    expect(DRAFT_SYSTEM_PROMPT).toContain('With no');
+    expect(DRAFT_SYSTEM_PROMPT).toContain('not accept, commit, quote a price');
   });
 });
 

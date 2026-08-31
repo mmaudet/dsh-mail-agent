@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { htmlToText, signatureOf, withSignature, SEPARATOR } from './signature.js';
+import { htmlToText, signatureOf, withSignature, withoutClosing, SEPARATOR } from './signature.js';
 
 const REAL =
   '\n<p>Très cordialement,<br></p><p>--</p><p>Michel-Marie MAUDET</p>' +
@@ -54,6 +54,32 @@ describe('which of the two signatures is used', () => {
   it('reports none rather than an empty block', () => {
     expect(signatureOf({ textSignature: '', htmlSignature: '' })).toBe(null);
     expect(signatureOf({})).toBe(null);
+  });
+});
+
+describe('the block starts at the name, not at a closing', () => {
+  it('drops the closing the stored signature opens with', () => {
+    // Left in, a draft reads "…Michel-Marie / Très cordialement, / -- /
+    // Michel-Marie MAUDET": a closing after the name, which nobody writes.
+    // The owner's own sent mail has the closing above the separator and the
+    // block starting at their name.
+    const signature = signatureOf({ htmlSignature: REAL }) ?? '';
+    expect(signature).not.toContain('Très cordialement');
+    expect(signature).toContain('Michel-Marie MAUDET');
+  });
+
+  it('drops the ones people actually write', () => {
+    for (const closing of ['Cordialement,', 'Bien à vous,', 'Bien à toi', 'Best regards,', 'Cdt']) {
+      expect(withoutClosing(`${closing}\nMoi\n06 00 00 00 00`)).toBe('Moi\n06 00 00 00 00');
+    }
+  });
+
+  it('keeps a name that merely looks like one', () => {
+    expect(withoutClosing('Regards Consulting SARL\n01 02 03')).toBe('Regards Consulting SARL\n01 02 03');
+  });
+
+  it('reports none when the closing was the whole signature', () => {
+    expect(signatureOf({ textSignature: 'Cordialement,' })).toBe(null);
   });
 });
 

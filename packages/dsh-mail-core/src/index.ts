@@ -255,6 +255,14 @@ export {
   signatureOf,
   htmlToText,
   withSignature,
+  withoutClosing,
   SEPARATOR,
   type SignatureSource,
 } from './drafts/signature.js';
+
+export {
+  describeRegister,
+  greetingOf,
+  registerOf,
+  type Register,
+} from './drafts/register.js';

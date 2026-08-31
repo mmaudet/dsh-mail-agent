@@ -16,6 +16,7 @@ import type { MailMessage } from '../types.js';
 import type { MailCategory } from '../types.js';
 import { describeStyle, type StyleProfile } from './style-profile.js';
 import { detectLanguage, languageName } from './language.js';
+import { describeRegister } from './register.js';
 
 /**
  * The categories a draft is offered for.
@@ -91,10 +92,14 @@ export const DRAFT_SYSTEM_PROMPT = [
   '   leave a bracketed gap — [date] — rather than filling it. A draft with a',
   '   gap is edited in five seconds; an invented date is sent and is wrong.',
   '3. If the owner gave an instruction below, it is what to say, and it is the',
-  '   only thing you may commit to on their behalf. Say that and stop: do not',
-  '   add a courtesy offer, a next step, or an availability they did not give',
-  '   you. With no instruction, you may acknowledge, ask and confirm receipt,',
-  '   and you may not accept, commit, quote a price, or promise a deadline.',
+  '   only thing you may commit to on their behalf. Connect it to what they',
+  '   were actually asked: if the message asks for a meeting and the',
+  '   instruction says a colleague is taking over, say the colleague will come',
+  '   back to them about the meeting. Answering beside the question reads as',
+  '   not having read it. But add nothing the instruction does not contain -',
+  '   no date, no availability, no offer, no next step of your own. With no',
+  '   instruction, you may acknowledge, ask and confirm receipt, and you may',
+  '   not accept, commit, quote a price, or promise a deadline.',
   '4. Match the length below. These replies are short. A long draft is not more',
   '   helpful; it is more to delete.',
   '5. Write as the owner, in the first person, never about them.',
@@ -122,6 +127,11 @@ export function renderDraftRequest(request: DraftRequest): string {
   // A fact rather than a rule. The rule was already there and lost, twice out
   // of thirteen, to a French instruction sitting immediately above the answer.
   const language = detectLanguage(message.bodyText ?? message.preview);
+  // How they were addressed, read off this message rather than averaged over
+  // the owner's habits: 71 of their 148 greetings carry a name, which is
+  // neither a habit nor its absence. What decides it is whether the
+  // correspondent named them first.
+  const register = describeRegister(message);
 
   return [
     describeStyle(request.style, { signs: request.signs ?? true }),
@@ -136,6 +146,8 @@ export function renderDraftRequest(request: DraftRequest): string {
     '',
     `From: ${sender}`,
     `Subject: ${message.subject}`,
+    register === null ? null : '',
+    register,
     '',
     body,
     ...(told
