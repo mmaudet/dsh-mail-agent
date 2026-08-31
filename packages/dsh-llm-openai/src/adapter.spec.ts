@@ -13,7 +13,7 @@ import { serializeRequest } from './serialize.js';
 import { StreamTranslator } from './translate.js';
 import type { GenerateOptions, Message, StreamChunk } from '@deepseek-ai/dsh-llm';
 
-const GATEWAY = 'https://chat.lucie.ovh.linagora.com/v1/';
+const GATEWAY = 'https://inference.linagora.com/v1/';
 const MODEL = 'Mistral-Small-3.2-24B-Instruct-2506-FP8';
 
 // ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ describe('trusted_endpoints_only', () => {
 
   it('is not fooled by a prefix that only looks like the gateway host', () => {
     expect(() => {
-      assertTrusted('https://chat.lucie.ovh.linagora.com.evil.test/v1', [GATEWAY], 'x');
+      assertTrusted('https://inference.linagora.com.evil.test/v1', [GATEWAY], 'x');
     }).toThrow(/not in trusted_endpoints_only/);
   });
 
@@ -386,7 +386,7 @@ describe('failures', () => {
     expect(headers['authorization']).toBe('Bearer bearer-value');
     expect(headers['user-agent']).toBeTruthy();
     expect(fetcher.mock.calls[0]?.[0]).toBe(
-      'https://chat.lucie.ovh.linagora.com/v1/chat/completions',
+      'https://inference.linagora.com/v1/chat/completions',
     );
   });
 });

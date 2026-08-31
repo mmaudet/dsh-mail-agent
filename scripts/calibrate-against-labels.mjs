@@ -34,7 +34,7 @@ const PINNED = JSON.parse(readFileSync(arg('ids', '/tmp/label-predictions.json')
 const RUN = arg('label', 'run');
 const OUT = arg('out', `/tmp/calibration-${RUN}.json`);
 
-const SOVEREIGN = /^https:\/\/chat\.lucie\.ovh\.linagora\.com(\/|$)/;
+const SOVEREIGN = /^https:\/\/inference\.linagora\.com(\/|$)/;
 const API_BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
 const MODEL = arg('model', 'Mistral-Small-3.2-24B-Instruct-2506-FP8');
 const THIRD_PARTY = args.includes('--accept-third-party');

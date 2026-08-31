@@ -43,7 +43,7 @@ const CONCURRENCY = Number(arg('concurrency', '6'));
 // returns nothing for another, and it reads as the model failing to answer.
 const MAX_TOKENS = Number(arg('max-tokens', '300'));
 const THIRD_PARTY = args.includes('--accept-third-party');
-const SOVEREIGN = /^https:\/\/chat\.lucie\.ovh\.linagora\.com(\/|$)/;
+const SOVEREIGN = /^https:\/\/inference\.linagora\.com(\/|$)/;
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
 const MODEL = arg('model', 'Mistral-Small-3.2-24B-Instruct-2506-FP8');
 const KEY = THIRD_PARTY ? process.env.OPENROUTER_API_KEY : process.env.MAIL_SENTINEL_API_KEY;

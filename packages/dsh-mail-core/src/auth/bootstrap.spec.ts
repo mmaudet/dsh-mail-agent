@@ -412,9 +412,9 @@ describe('EnvFileStore quoting', () => {
   it('leaves a plain value unquoted, so the file stays readable', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-env-'));
     const s = new EnvFileStore(join(dir, '.env'));
-    await s.write('MAIL_SENTINEL_API_BASE', 'https://chat.lucie.ovh.linagora.com/v1/');
+    await s.write('MAIL_SENTINEL_API_BASE', 'https://inference.linagora.com/v1/');
 
     const line = (await readFile(join(dir, '.env'), 'utf8')).trim();
-    expect(line).toBe('MAIL_SENTINEL_API_BASE=https://chat.lucie.ovh.linagora.com/v1/');
+    expect(line).toBe('MAIL_SENTINEL_API_BASE=https://inference.linagora.com/v1/');
   });
 });

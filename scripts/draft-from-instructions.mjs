@@ -41,7 +41,7 @@ const MODEL = arg('model', 'mistralai/mistral-small-3.2-24b-instruct');
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
 const OWNER = process.env.MAIL_SENTINEL_OWNER ?? '';
 const THIRD_PARTY = args.includes('--accept-third-party');
-const SOVEREIGN = /^https:\/\/chat\.lucie\.ovh\.linagora\.com(\/|$)/;
+const SOVEREIGN = /^https:\/\/inference\.linagora\.com(\/|$)/;
 
 if (IN === null || OUT === null) {
   console.error('usage: draft-from-instructions.mjs --in triage.json --out drafts.json');

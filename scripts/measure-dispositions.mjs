@@ -41,7 +41,7 @@ const PROMPT = arg('prompt', 'action');
 // measurement of the harness rather than of the model.
 const MAX_TOKENS = Number(arg('max-tokens', '8'));
 const THIRD_PARTY = args.includes('--accept-third-party');
-const SOVEREIGN = /^https:\/\/chat\.lucie\.ovh\.linagora\.com(\/|$)/;
+const SOVEREIGN = /^https:\/\/inference\.linagora\.com(\/|$)/;
 const OWN = (arg('own', process.env.MAIL_SENTINEL_OWN_ADDRESSES) ?? process.env.MAIL_SENTINEL_OWNER ?? '')
   .split(',')
   .map((s) => s.trim())

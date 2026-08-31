@@ -242,6 +242,30 @@ address, and half a dozen team aliases whose meanings are opposite —
 carried one message and one obligation. Which alias is which is an
 owner-stated fact, like a route, and there is no field for it.
 
+## 11. §3.4 — the sovereign gateway moved
+
+The PRD names `https://chat.lucie.ovh.linagora.com/v1/` in five places, as the
+one endpoint the whitelist admits and as the basis of the sovereignty claim.
+Its certificate expired on 30 August, which is why every measurement taken
+since then carries a banner saying real message content went to a third-party
+endpoint instead.
+
+It is now `https://inference.linagora.com/v1/`, certificate valid to 4 November,
+serving the same `Mistral-Small-3.2-24B-Instruct-2506-FP8` the PRD specifies
+along with `Luciole-23B-Instruct-1.1-FP8`, `lucie-7b-instruct-v1.1`,
+`Qwen3-VL-8B-Instruct-FP8`, an embedding model and a reranker.
+
+The PRD is not edited: the address changed, the design did not, and editing it
+would erase the record that the endpoint this project was built against went
+away for three days. What changed in the code is the whitelist, the four
+`dsh-llm-openai` tiers, and the `SOVEREIGN` guard that every measurement script
+uses to refuse a non-sovereign endpoint.
+
+The cost of those three days is measurable and is recorded in
+`docs/reviews/one-hundred-and-fifty.md`: thirteen of a hundred and fifty
+messages went unclassified because the third-party endpoint answered 429, and
+the live agent hit the same wall twice on the morning of 31 August.
+
 ## Two more, outside the PRD
 
 **`LIST-EXTENDED` is advertised and broken** on the production IMAP server:

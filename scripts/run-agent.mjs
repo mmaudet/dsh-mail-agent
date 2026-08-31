@@ -52,7 +52,7 @@ const FOLDER = arg('folder', 'INBOX');
 const MODEL = arg('model', 'Mistral-Small-3.2-24B-Instruct-2506-FP8');
 const BASE = (arg('base', process.env.MAIL_SENTINEL_API_BASE) ?? '').replace(/\/$/, '');
 const THIRD_PARTY = args.includes('--accept-third-party');
-const SOVEREIGN = /^https:\/\/chat\.lucie\.ovh\.linagora\.com(\/|$)/;
+const SOVEREIGN = /^https:\/\/inference\.linagora\.com(\/|$)/;
 const KEY = THIRD_PARTY ? process.env.OPENROUTER_API_KEY : process.env.MAIL_SENTINEL_API_KEY;
 
 if (!SOVEREIGN.test(BASE)) {

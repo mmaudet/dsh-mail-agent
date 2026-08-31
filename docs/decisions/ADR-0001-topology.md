@@ -38,7 +38,7 @@ development workstation.
                                     v
                 +---------------------------------------+
                 |  LINAGORA LLM gateway (OVH)           |
-                |  chat.lucie.ovh.linagora.com/v1/      |
+                |  inference.linagora.com/v1/      |
                 |  Mistral-Small-3.2-24B-Instruct-FP8   |
                 +---------------------------------------+
 ```
