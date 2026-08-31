@@ -224,9 +224,27 @@ describe('what still wants the owner', () => {
     expect(describeDigest(digest)).toContain('Devis');
   });
 
+  it('lists only what arrived inside the window', () => {
+    // `pending()` answers about the whole inbox. A week's digest that carries
+    // the whole backlog is not a digest of that week, and it showed negative
+    // waiting times for mail that arrived after the window closed.
+    const digest = summarizePeriod(
+      input({
+        waiting: [
+          { message: msg({ id: 'in', receivedAt: new Date('2026-08-26T00:00:00Z') }), category: 'demande-interne' },
+          { message: msg({ id: 'before', receivedAt: new Date('2026-08-01T00:00:00Z') }), category: 'demande-interne' },
+          { message: msg({ id: 'after', receivedAt: new Date('2026-09-01T00:00:00Z') }), category: 'demande-interne' },
+        ],
+      }),
+      PERIOD,
+    );
+    expect(digest.waiting.map((w) => w.id)).toStrictEqual(['in']);
+    expect(digest.waiting.every((w) => w.waitingDays >= 0)).toBe(true);
+  });
+
   it('says how many it did not list', () => {
     const many = Array.from({ length: 9 }, (_, i) => ({
-      message: msg({ id: `w${String(i)}` }),
+      message: msg({ id: `w${String(i)}`, receivedAt: new Date('2026-08-26T00:00:00Z') }),
       category: 'demande-interne' as const,
     }));
     expect(describeDigest(summarizePeriod(input({ waiting: many }), PERIOD), 6)).toContain(

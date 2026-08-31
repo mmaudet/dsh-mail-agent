@@ -66,7 +66,9 @@ const adapter = new JmapAdapter({
 // Which addresses are the owner rather than a list they sit on. The account
 // states it, so nothing here has to be configured or guessed.
 const identities = await adapter.identities();
-const ownAddresses = identities.map((i) => i.email);
+// An account can hold two identities on one address, a named one and a bare
+// one. Counting the address twice would misreport who wrote.
+const ownAddresses = [...new Set(identities.map((i) => i.email.toLowerCase()))];
 console.error(`${String(ownAddresses.length)} identities: ${ownAddresses.slice(0, 4).join(', ')}…`);
 
 const messages = await adapter.getMessages(await adapter.messagesSince('INBOX', FROM, 1200));

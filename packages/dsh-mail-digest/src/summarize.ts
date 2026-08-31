@@ -169,6 +169,8 @@ export function viaLists(messages: readonly MailMessage[], own: ReadonlySet<stri
 }
 
 export function summarizePeriod(input: DigestInput, period: Period): Digest {
+  // An account can hold two identities on one address — a named one and a bare
+  // one — and counting an address twice would misreport who wrote.
   const own = new Set(input.ownAddresses.map(lower));
   const messages = within(input.messages, period);
   const sent = within(input.sent, period);
@@ -213,7 +215,14 @@ export function summarizePeriod(input: DigestInput, period: Period): Digest {
     hotThreads: hotThreads(messages, own),
     correspondents: correspondents(messages, own),
     viaLists: viaLists(messages, own),
-    waiting: input.waiting.map(({ message, category }) => ({
+    // Windowed like everything else. `pending()` answers about the whole
+    // inbox, and a week's digest that lists a hundred and sixty-seven items
+    // from before it is not a digest of that week — it also produced negative
+    // waiting times for mail that arrived after the window closed.
+    waiting: within(
+      input.waiting.map((w) => ({ ...w, receivedAt: w.message.receivedAt })),
+      period,
+    ).map(({ message, category }) => ({
       id: message.id,
       from: message.from[0]?.email ?? '',
       subject: message.subject,
