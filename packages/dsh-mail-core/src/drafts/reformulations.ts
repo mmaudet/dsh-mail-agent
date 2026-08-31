@@ -19,6 +19,14 @@
 
 /** One draft and what the owner replaced it with. */
 export interface Reformulation {
+  /**
+   * The message the correction was made on.
+   *
+   * Kept so a message is never shown its own correction: drafting it again
+   * with the answer in the prompt is replay, and it scores perfectly while
+   * proving nothing.
+   */
+  readonly messageId?: string | undefined;
   /** What the message was about, so the pair is legible. */
   readonly subject: string;
   /** What the agent produced. */
@@ -44,8 +52,12 @@ export const MAX_REFORMULATIONS = 3;
 export function describeReformulations(
   reformulations: readonly Reformulation[],
   limit = MAX_REFORMULATIONS,
+  drafting?: string,
 ): string | null {
-  const kept = reformulations.filter((r) => r.wanted.trim() !== '').slice(0, limit);
+  const kept = reformulations
+    .filter((r) => r.wanted.trim() !== '')
+    .filter((r) => drafting === undefined || r.messageId !== drafting)
+    .slice(0, limit);
   if (kept.length === 0) return null;
   const lines = [
     'Drafts this owner rewrote. The difference between the two is what they',

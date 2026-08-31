@@ -46,6 +46,25 @@ describe('how many, and which', () => {
   });
 });
 
+describe('a message is never shown its own correction', () => {
+  it('drops the pair made on the message being drafted', () => {
+    // Otherwise the draft is a replay of the answer, and it looks perfect.
+    const own = { ...REAL, messageId: 'm-rdv' };
+    expect(describeReformulations([own], 3, 'm-rdv')).toBe(null);
+    expect(describeReformulations([own], 3, 'm-autre')).toContain('RE: RDV 16/07');
+  });
+
+  it('keeps the others', () => {
+    const list = [
+      { ...REAL, messageId: 'm-rdv', subject: 'le sien' },
+      { ...REAL, messageId: 'm-autre', subject: 'un autre' },
+    ];
+    const text = describeReformulations(list, 3, 'm-rdv') ?? '';
+    expect(text).toContain('un autre');
+    expect(text).not.toContain('le sien');
+  });
+});
+
 describe('nothing to show is nothing said', () => {
   it('reports none for an empty list', () => {
     expect(describeReformulations([])).toBe(null);

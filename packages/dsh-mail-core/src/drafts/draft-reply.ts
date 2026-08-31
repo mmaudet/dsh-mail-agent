@@ -143,7 +143,12 @@ export function renderDraftRequest(request: DraftRequest): string {
   // neither a habit nor its absence. What decides it is whether the
   // correspondent named them first.
   const register = describeRegister(message, request.ownNames ?? []);
-  const rewritten = describeReformulations(request.reformulations ?? []);
+  // Never the correction made on this very message: that is replay.
+  const rewritten = describeReformulations(
+    request.reformulations ?? [],
+    undefined,
+    message.id,
+  );
 
   return [
     describeStyle(request.style, { signs: request.signs ?? true }),
