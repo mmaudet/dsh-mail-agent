@@ -115,6 +115,7 @@ export class JmapAdapter implements MailService {
   readonly #push: JmapPushChannel | undefined;
   /** Folder path to id, refreshed by every `listFolders` call. */
   #folderIds = new Map<string, string>();
+  #identity: MailAddress | null = null;
 
   constructor(options: JmapAdapterOptions) {
     this.#transport = options.transport;
@@ -397,6 +398,10 @@ export class JmapAdapter implements MailService {
 
   async createDraft(msg: DraftMessage): Promise<string> {
     const draftsId = await this.#folderId('Drafts');
+    // A draft with no From opens in the client with an empty sender. Some fill
+    // it from the default identity and some do not, and the owner found this
+    // one blank in Thunderbird, so the adapter states it rather than hoping.
+    const from = await this.#identityAddress();
     const response = await this.#call(
       [JMAP_CORE, JMAP_MAIL],
       [
@@ -407,12 +412,19 @@ export class JmapAdapter implements MailService {
             draft: {
               mailboxIds: { [draftsId]: true },
               keywords: { $draft: true },
+              from: from === null ? null : [toWireAddress(from)],
               to: msg.to.map(toWireAddress),
               cc: msg.cc.map(toWireAddress),
               subject: msg.subject,
               inReplyTo: msg.inReplyTo === null ? null : [msg.inReplyTo],
               references: msg.references.length > 0 ? [...msg.references] : null,
-              bodyStructure: { type: 'text/plain', partId: 'body' },
+              // `textBody`, not `bodyStructure`. RFC 8621 section 4.6 offers
+              // both, and the target server accepts the second without ever
+              // binding the part to its value: the draft is created, threaded
+              // and addressed correctly, and arrives with an empty body. It
+              // reports no error, so only reading a draft back off the wire
+              // finds it.
+              textBody: [{ partId: 'body', type: 'text/plain' }],
               bodyValues: { body: { value: msg.bodyText } },
             },
           },
@@ -484,6 +496,33 @@ export class JmapAdapter implements MailService {
         `Email/set rejected ${id}: ${asString(readProp(notUpdated, 'type')) ?? 'unknown'}`,
       );
     }
+  }
+
+  /**
+   * The address the configured identity sends from.
+   *
+   * `null` when the server does not offer the submission capability or the
+   * identity is unknown, which leaves the client to fill From as it did
+   * before — a draft without a sender is worse than one, and neither is worth
+   * refusing to save the owner's text over.
+   */
+  async #identityAddress(): Promise<MailAddress | null> {
+    if (this.#identity !== null) return this.#identity;
+    let response: unknown;
+    try {
+      response = await this.#call(
+        [JMAP_CORE, JMAP_MAIL, JMAP_SUBMISSION],
+        ['Identity/get', { accountId: this.#accountId, ids: [this.#identityId] }, 'i0'],
+      );
+    } catch {
+      return null;
+    }
+    const list = readProp(response, 'list');
+    const first: unknown = Array.isArray(list) ? (list as readonly unknown[])[0] : undefined;
+    const email = asString(readProp(first, 'email'));
+    if (email === null) return null;
+    this.#identity = { name: asString(readProp(first, 'name')), email };
+    return this.#identity;
   }
 
   async #folderId(path: string): Promise<string> {

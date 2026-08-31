@@ -240,3 +240,10 @@ export {
   SAMPLE_CHARS,
   type ReplyLanguage,
 } from './drafts/language.js';
+
+export {
+  withQuotedThread,
+  attribution,
+  quoted,
+  MAX_QUOTED_CHARS,
+} from './drafts/quote.js';

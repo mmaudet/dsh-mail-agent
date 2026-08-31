@@ -8,6 +8,9 @@ import {
   type JmapTransport,
 } from './jmap-adapter.js';
 
+/** What `Identity/get` answers, so a draft can carry a From. */
+const IDENTITY = { list: [{ id: 'id1', email: 'owner@example.org', name: 'Owner' }] };
+
 /** Replays canned method responses and records what was asked. */
 function transportOf(...responses: readonly unknown[]): JmapTransport & {
   readonly sent: JmapRequest[];
@@ -298,7 +301,7 @@ describe('writes', () => {
 
 describe('drafts and submission', () => {
   it('creates a draft in the Drafts mailbox and returns its id', async () => {
-    const transport = transportOf(MAILBOXES, { created: { draft: { id: 'e9' } } });
+    const transport = transportOf(MAILBOXES, IDENTITY, { created: { draft: { id: 'e9' } } });
     const adapter = adapterWith(transport);
 
     const id = await adapter.createDraft({
@@ -311,21 +314,52 @@ describe('drafts and submission', () => {
     });
 
     expect(id).toBe('e9');
-    expect(transport.sent[1]?.methodCalls[0]?.[1]).toMatchObject({
+    expect(transport.sent[2]?.methodCalls[0]?.[1]).toMatchObject({
       create: {
         draft: {
           mailboxIds: { 'mb-drafts': true },
           keywords: { $draft: true },
           inReplyTo: ['prev@example.org'],
           references: ['root@example.org'],
+          // The part the earlier version of this test never looked at, which
+          // is exactly the one the server dropped. A draft was created,
+          // threaded and addressed, and its body was empty.
+          textBody: [{ partId: 'body', type: 'text/plain' }],
+          bodyValues: { body: { value: 'Hi' } },
         },
       },
     });
   });
 
+  it('binds the body part to a value that exists', async () => {
+    // `bodyStructure` and `textBody` are both legal (RFC 8621 section 4.6) and
+    // the server accepted the first while storing nothing. What can be checked
+    // here is only that the part id names a key in bodyValues — the rest took
+    // a real mailbox and a read-back to find.
+    const transport = transportOf(MAILBOXES, IDENTITY, { created: { draft: { id: 'e9' } } });
+    const adapter = adapterWith(transport);
+    await adapter.createDraft({
+      to: [{ name: null, email: 'someone@example.org' }],
+      cc: [],
+      subject: 'Re: hello',
+      bodyText: 'Le corps du message.',
+      inReplyTo: null,
+      references: [],
+    });
+
+    const draft = (
+      transport.sent[2]?.methodCalls[0]?.[1] as {
+        create: { draft: { textBody: { partId: string }[]; bodyValues: Record<string, { value: string }> } };
+      }
+    ).create.draft;
+    const partId = draft.textBody[0]?.partId ?? '';
+    expect(Object.keys(draft.bodyValues)).toContain(partId);
+    expect(draft.bodyValues[partId]?.value).toBe('Le corps du message.');
+  });
+
   it('explains why a draft was refused', async () => {
     const adapter = adapterWith(
-      transportOf(MAILBOXES, { notCreated: { draft: { type: 'tooLarge' } } }),
+      transportOf(MAILBOXES, IDENTITY, { notCreated: { draft: { type: 'tooLarge' } } }),
     );
     await expect(
       adapter.createDraft({
