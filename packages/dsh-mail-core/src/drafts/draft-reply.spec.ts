@@ -187,6 +187,30 @@ describe('the reply is addressed the way the message was', () => {
   });
 });
 
+describe('a draft is material to edit, not a message to send', () => {
+  it('asks for every question to be taken in turn', () => {
+    // Eight of thirteen real messages asked at least one question and no
+    // draft answered any of them: nothing in the prompt said to.
+    expect(DRAFT_SYSTEM_PROMPT).toContain('every question it asks in turn');
+    expect(DRAFT_SYSTEM_PROMPT).toContain('answer three things');
+  });
+
+  it('points the draft at the thread already in front of it', () => {
+    // One message was 23 words with 533 words of quoted thread under it, all
+    // of it already in the prompt. Nothing told the model to read it.
+    expect(DRAFT_SYSTEM_PROMPT).toContain('what is quoted below');
+  });
+
+  it('stops treating the owner’s sent length as a cap on the draft', () => {
+    // The old rule — "these replies are short, a long draft is more to
+    // delete" — was written as if the draft were the finished message. It
+    // produced 32 words against a 56-word median and three-line answers to
+    // three-question messages.
+    expect(DRAFT_SYSTEM_PROMPT).not.toContain('A long draft is not more');
+    expect(DRAFT_SYSTEM_PROMPT).toContain('a draft may be longer');
+  });
+});
+
 describe('what the draft may commit to', () => {
   it('permits committing only what the instruction says', () => {
     expect(DRAFT_SYSTEM_PROMPT).toContain('only thing you may commit to on their behalf');
