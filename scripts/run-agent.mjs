@@ -128,7 +128,16 @@ const transport = {
       if (!refreshToken()) throw new Error('JMAP 401 and the token could not be refreshed');
       attempt = await jmapCall(body);
     }
-    if (attempt.json === null) throw new Error(`JMAP ${attempt.status}`);
+    // A 500 from the mail server is weather, not a verdict. The agent survived
+    // an unreachable *model* from the first day and had nothing for an
+    // unreachable *mailbox*: one 500 during a delta poll ended the process.
+    for (let wait = 2000; attempt.json === null && attempt.status >= 500 && wait <= 16000; wait *= 2) {
+      console.error(`  JMAP ${String(attempt.status)}, retrying in ${String(wait / 1000)}s`);
+      await new Promise((r) => setTimeout(r, wait));
+      apiUrl = null;
+      attempt = await jmapCall(body);
+    }
+    if (attempt.json === null) throw new Error(`JMAP ${String(attempt.status)}`);
     return attempt.json;
   },
 };
@@ -229,15 +238,32 @@ process.on('SIGINT', () => {
   stopping = true;
 });
 
+// Consecutive failed passes, so a mailbox that is down for an hour is visible
+// in the log rather than only in the gaps between passes.
+let failures = 0;
 for (;;) {
-  const pass = await runAgent(options);
-  console.log(`\n${describePass(pass)}`);
+  try {
+    const pass = await runAgent(options);
+    failures = 0;
+    console.log(`\n${describePass(pass)}`);
 
-  // Learning after the pass, not before: what was just classified is the
-  // evidence, and a pass that learned first would be a pass behind.
-  if (pass.classified.length > 0) console.log(`  ${describeLearn(learn(store))}`);
+    // Learning after the pass, not before: what was just classified is the
+    // evidence, and a pass that learned first would be a pass behind.
+    if (pass.classified.length > 0) console.log(`  ${describeLearn(learn(store))}`);
+  } catch (err) {
+    // A pass that throws is a pass lost, not a run lost. The cursor only moves
+    // on a pass that finished, so the next one sees the same mail again.
+    failures += 1;
+    console.error(
+      `\n  pass failed (${String(failures)} in a row): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    if (EVERY === null) throw err;
+  }
 
   if (EVERY === null || stopping) break;
-  await new Promise((r) => setTimeout(r, Number(EVERY) * 1000));
+  // Back off while it keeps failing, up to eight intervals, so a mailbox that
+  // is down is not hammered every three minutes.
+  const wait = Number(EVERY) * Math.min(2 ** failures, 8) * 1000;
+  await new Promise((r) => setTimeout(r, wait));
 }
 store.close();
